@@ -1,0 +1,80 @@
+name: Build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Go tests (with SQL Server)
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'Str0ng!Passw0rd'
+        ports: ['1433:1433']
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Str0ng!Passw0rd' -Q 'SELECT 1' || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        env:
+          SQLSTUDIO_TEST_SERVER: localhost
+          SQLSTUDIO_TEST_USER: sa
+          SQLSTUDIO_TEST_PASSWORD: 'Str0ng!Passw0rd'
+        run: go test -race ./internal/...
+
+  macos:
+    name: macOS app (universal)
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+      - name: Build
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF" == refs/tags/* ]] || VERSION="0.1.0-dev+${GITHUB_SHA::7}"
+          wails build -platform darwin/universal -clean -trimpath -ldflags "-X main.version=${VERSION}"
+          # Ad-hoc sign so Apple Silicon will run it (not notarized).
+          codesign --force --deep --sign - "build/bin/SQL Studio.app"
+      - name: Package
+        run: |
+          cd build/bin
+          ditto -c -k --keepParent "SQL Studio.app" ../../SQL-Studio-macOS-universal.zip
+          mkdir dmg && cp -R "SQL Studio.app" dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname "SQL Studio" -srcfolder dmg -ov -format UDZO ../../SQL-Studio-macOS-universal.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SQL-Studio-macOS
+          path: |
+            SQL-Studio-macOS-universal.zip
+            SQL-Studio-macOS-universal.dmg
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            SQL-Studio-macOS-universal.zip
+            SQL-Studio-macOS-universal.dmg

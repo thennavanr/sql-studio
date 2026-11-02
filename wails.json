@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "SQL Studio",
+  "outputfilename": "SQL Studio",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "./frontend/src",
+  "author": {
+    "name": "thennavanr"
+  },
+  "info": {
+    "companyName": "SQL Studio",
+    "productName": "SQL Studio",
+    "productVersion": "0.1.0",
+    "copyright": "MIT License",
+    "comments": "Lightweight SQL Server & Azure SQL client"
+  }
+}
