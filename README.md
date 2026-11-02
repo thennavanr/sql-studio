@@ -77,6 +77,8 @@ make build             # build/bin/SQL Studio.app for this Mac
 make build-universal   # Apple Silicon + Intel
 ```
 
+Releases: run the **Build** workflow manually (Actions → Build → *Run workflow*) with a version such as `0.2.0`, or push a `v0.2.0` tag. Either way it tests, builds the universal app and publishes a GitHub Release with the `.dmg` and `.zip`.
+
 Tests (the integration test needs a SQL Server, e.g. in Docker):
 
 ```sh

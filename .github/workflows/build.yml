@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without the v (e.g. 0.1.0). Creates tag v<version> and a GitHub Release. Leave empty for a plain build.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -53,9 +58,17 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
       - name: Build
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [[ "$GITHUB_REF" == refs/tags/* ]] || VERSION="0.1.0-dev+${GITHUB_SHA::7}"
+          if [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.1.0-dev+${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           wails build -platform darwin/universal -clean -trimpath -ldflags "-X main.version=${VERSION}"
           # Ad-hoc sign so Apple Silicon will run it (not notarized).
           codesign --force --deep --sign - "build/bin/SQL Studio.app"
@@ -72,9 +85,21 @@ jobs:
             SQL-Studio-macOS-universal.zip
             SQL-Studio-macOS-universal.dmg
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: SQL Studio v${{ env.VERSION }}
+          generate_release_notes: true
+          body: |
+            Lightweight SQL Server / Azure SQL client for macOS (universal: Apple Silicon + Intel).
+
+            **Install:** download `SQL-Studio-macOS-universal.dmg`, drag **SQL Studio** to Applications.
+            The app is ad-hoc signed but not notarized — on first launch right-click → **Open**, or run:
+            ```sh
+            xattr -dr com.apple.quarantine "/Applications/SQL Studio.app"
+            ```
           files: |
             SQL-Studio-macOS-universal.zip
             SQL-Studio-macOS-universal.dmg
