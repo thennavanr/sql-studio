@@ -21,12 +21,27 @@ A lightweight, native-feeling SQL Server / **Azure SQL** client for macOS — a 
 
 ## Install
 
-Download `SQL-Studio-macOS-universal.dmg` from the [Releases](../../releases) page (or the latest **Build** workflow run's artifacts), and drag **SQL Studio** into Applications.
-
-The app is ad-hoc signed but not notarized, so the first time either right-click → **Open**, or run:
+### Homebrew (recommended)
 
 ```sh
-xattr -dr com.apple.quarantine "/Applications/SQL Studio.app"
+brew tap thennavanr/sql-studio https://github.com/thennavanr/sql-studio
+brew install --cask --appdir ~/Applications thennavanr/sql-studio/sql-studio   # no admin rights needed
+open ~/Applications/"SQL Studio.app"
+```
+
+Upgrade with `brew upgrade --cask sql-studio`; uninstall with `brew uninstall --cask sql-studio` (add `--zap` to also remove saved connections and settings). Drop `--appdir ~/Applications` to install into `/Applications` instead.
+
+The cask clears macOS's download quarantine, because the app is ad-hoc signed but not notarized.
+
+### Manual
+
+Download `SQL-Studio-macOS-universal.dmg` from [Releases](../../releases). If you can write to `/Applications`, drag **SQL Studio** there; otherwise copy it into your own Applications folder. Then clear the quarantine flag, which otherwise makes macOS say the app is "damaged":
+
+```sh
+mkdir -p ~/Applications
+cp -R "/Volumes/SQL Studio/SQL Studio.app" ~/Applications/
+xattr -dr com.apple.quarantine ~/Applications/"SQL Studio.app"
+open ~/Applications/"SQL Studio.app"
 ```
 
 ## Connecting to Azure SQL
@@ -77,7 +92,7 @@ make build             # build/bin/SQL Studio.app for this Mac
 make build-universal   # Apple Silicon + Intel
 ```
 
-Releases: run the **Build** workflow manually (Actions → Build → *Run workflow*) with a version such as `0.2.0`, or push a `v0.2.0` tag. Either way it tests, builds the universal app and publishes a GitHub Release with the `.dmg` and `.zip`.
+Releases: run the **Build** workflow manually (Actions → Build → *Run workflow*) with a version such as `0.2.0`, or push a `v0.2.0` tag. Either way it tests, builds the universal app, publishes a GitHub Release with the `.dmg` and `.zip`, and updates the Homebrew cask in `Casks/sql-studio.rb` on `main`.
 
 Tests (the integration test needs a SQL Server, e.g. in Docker):
 

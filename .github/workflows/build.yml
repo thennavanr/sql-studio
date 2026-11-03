@@ -103,3 +103,15 @@ jobs:
           files: |
             SQL-Studio-macOS-universal.zip
             SQL-Studio-macOS-universal.dmg
+      - name: Update Homebrew cask
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
+        run: |
+          SHA=$(shasum -a 256 SQL-Studio-macOS-universal.dmg | cut -d' ' -f1)
+          git fetch origin main
+          git checkout -B cask-update origin/main
+          sed -i '' -E "s/^  version \".*\"/  version \"${VERSION}\"/; s/^  sha256 \".*\"/  sha256 \"${SHA}\"/" Casks/sql-studio.rb
+          if git diff --quiet; then echo "Cask already up to date"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Cask: sql-studio ${VERSION}"
+          git push origin HEAD:main
