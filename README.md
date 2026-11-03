@@ -33,6 +33,10 @@ Upgrade with `brew upgrade --cask sql-studio`; uninstall with `brew uninstall --
 
 The cask clears macOS's download quarantine, because the app is ad-hoc signed but not notarized.
 
+If you installed SQL Studio manually before, remove that copy first so brew can install its own: `rm -rf ~/Applications/"SQL Studio.app"`. Saved connections and Keychain passwords are kept.
+
+If the install fails, run it again with `--verbose` and include the output when reporting the problem.
+
 ### Manual
 
 Download `SQL-Studio-macOS-universal.dmg` from [Releases](../../releases). If you can write to `/Applications`, drag **SQL Studio** there; otherwise copy it into your own Applications folder. Then clear the quarantine flag, which otherwise makes macOS say the app is "damaged":
