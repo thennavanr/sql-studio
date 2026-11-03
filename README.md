@@ -36,7 +36,7 @@ xattr -dr com.apple.quarantine "/Applications/SQL Studio.app"
 
 | Method | When to use |
 |---|---|
-| **Entra ID – Interactive** | Default. Opens your browser, supports MFA/Conditional Access. Optional login hint and tenant. |
+| **Entra ID – Universal with MFA** | Default. Same as "Azure Active Directory – Universal with MFA" in SSMS/ADS: opens your browser, supports MFA/Conditional Access. Optional login hint and tenant. |
 | **Entra ID – Azure CLI** | You already use `az login` (`brew install azure-cli`). |
 | **Entra ID – Device code** | Browser redirect is blocked; sign in from any device. |
 | **Entra ID – Service principal** | Automation / app registrations (client ID + secret + tenant). |

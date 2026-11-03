@@ -127,7 +127,7 @@ export async function promptPasswordFor(c: Connection): Promise<string | null> {
 // ---------- connection dialog ----------
 
 const AUTH_OPTIONS: [string, string][] = [
-  ['entraInteractive', 'Microsoft Entra ID – Interactive (browser, MFA)'],
+  ['entraInteractive', 'Microsoft Entra ID – Universal with MFA (browser sign-in)'],
   ['entraAzCli', 'Microsoft Entra ID – Azure CLI (az login)'],
   ['entraDefault', 'Microsoft Entra ID – Default credential chain'],
   ['entraDeviceCode', 'Microsoft Entra ID – Device code'],
