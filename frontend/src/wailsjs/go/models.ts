@@ -38,6 +38,48 @@ export namespace engine {
 	        this.kind = source["kind"];
 	    }
 	}
+	export class ScriptDataOptions {
+	    top: number;
+	    where: string;
+	    orderBy: string;
+	    target: string;
+	    rowsPerInsert: number;
+	    includeIdentity: boolean;
+	    includeCreate: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScriptDataOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.top = source["top"];
+	        this.where = source["where"];
+	        this.orderBy = source["orderBy"];
+	        this.target = source["target"];
+	        this.rowsPerInsert = source["rowsPerInsert"];
+	        this.includeIdentity = source["includeIdentity"];
+	        this.includeCreate = source["includeCreate"];
+	    }
+	}
+	export class ScriptDataResult {
+	    script: string;
+	    rows: number;
+	    truncated: boolean;
+	    target: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScriptDataResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.script = source["script"];
+	        this.rows = source["rows"];
+	        this.truncated = source["truncated"];
+	        this.target = source["target"];
+	    }
+	}
 	export class ServerInfo {
 	    version: string;
 	    productLevel: string;

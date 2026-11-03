@@ -22,6 +22,10 @@ export function Connect(arg1, arg2) {
   return window['go']['main']['App']['Connect'](arg1, arg2);
 }
 
+export function CopyText(arg1) {
+  return window['go']['main']['App']['CopyText'](arg1);
+}
+
 export function DeleteConnection(arg1) {
   return window['go']['main']['App']['DeleteConnection'](arg1);
 }
@@ -88,6 +92,10 @@ export function SaveFile(arg1, arg2, arg3, arg4) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function ScriptData(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['ScriptData'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function ScriptObject(arg1, arg2, arg3, arg4, arg5) {

@@ -203,17 +203,43 @@ func (a *App) ScriptObject(connID, database, schema, name, kind string) (string,
 	return engine.Definition(ctx, db, schema, name, kind)
 }
 
+// ScriptData generates INSERT statements with the rows of a table or view.
+func (a *App) ScriptData(connID, database, schema, name string, opts engine.ScriptDataOptions) (engine.ScriptDataResult, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Minute)
+	defer cancel()
+	db, err := a.mgr.Pool(ctx, connID, database)
+	if err != nil {
+		return engine.ScriptDataResult{}, err
+	}
+	return engine.ScriptData(ctx, db, schema, name, opts)
+}
+
+// CopyText puts text on the system clipboard (works for large text and
+// outside a user gesture, unlike the web clipboard API).
+func (a *App) CopyText(text string) error {
+	return runtime.ClipboardSetText(a.ctx, text)
+}
+
 // ---- Query execution ----
 
+// eventSink streams execution output to the UI. Every event carries a
+// per-run sequence number because the event transport does not guarantee
+// delivery order; the UI applies events strictly in sequence.
 type eventSink struct {
 	ctx   context.Context
 	tabID string
 	runID string
+	mu    sync.Mutex
+	seq   int
 }
 
 func (s *eventSink) emit(name string, data map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	data["tabId"] = s.tabID
 	data["runId"] = s.runID
+	data["seq"] = s.seq
+	s.seq++
 	runtime.EventsEmit(s.ctx, name, data)
 }
 func (s *eventSink) ResultSet(i int, cols []engine.Column) {

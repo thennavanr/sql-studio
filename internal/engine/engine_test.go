@@ -258,3 +258,152 @@ CREATE TABLE #tmp (x int);
 		t.Errorf("databases: %v %v", dbs, err)
 	}
 }
+
+func TestSplitIdentifier(t *testing.T) {
+	ok := map[string][]string{
+		"Orders":                {"Orders"},
+		"dbo.Orders":            {"dbo", "Orders"},
+		"[dbo].[My Table]":      {"dbo", "My Table"},
+		`"sales"."Order Lines"`: {"sales", "Order Lines"},
+		"[a]]b].[c.d]":          {"a]b", "c.d"},
+		"db.dbo.T":              {"db", "dbo", "T"},
+		" [dbo] . [T] ":         {"dbo", "T"},
+	}
+	for in, want := range ok {
+		got, err := SplitIdentifier(in)
+		if err != nil || strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("SplitIdentifier(%q) = %q, %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{"", ".", "a..b", "[unterminated", "a.b.c.d", "[a]x"} {
+		if _, err := SplitIdentifier(bad); err == nil {
+			t.Errorf("SplitIdentifier(%q) should fail", bad)
+		}
+	}
+}
+
+func TestSQLLiteral(t *testing.T) {
+	cases := []struct {
+		v    any
+		typ  string
+		want string
+	}{
+		{nil, "int", "NULL"},
+		{int64(-5), "int", "-5"},
+		{true, "bit", "1"},
+		{"O'Brien", "nvarchar", "N'O''Brien'"},
+		{"plain", "varchar", "'plain'"},
+		{"café", "varchar", "N'café'"},
+		{[]byte("12.50"), "decimal", "12.50"},
+		{[]byte{1, 0xAB}, "varbinary", "0x01AB"},
+		{[]byte{}, "varbinary", "0x"},
+		{time.Date(2024, 1, 2, 3, 4, 5, 123456700, time.UTC), "datetime2", "'2024-01-02T03:04:05.1234567'"},
+		{time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC), "date", "'2024-01-02'"},
+		{time.Date(2024, 1, 2, 3, 4, 5, 0, time.FixedZone("", 5*3600+1800)), "datetimeoffset", "'2024-01-02T03:04:05.0000000+05:30'"},
+		{float64(0.1), "float", "0.1"},
+	}
+	for _, c := range cases {
+		if got := SQLLiteral(c.v, dataColumn{baseType: c.typ}); got != c.want {
+			t.Errorf("SQLLiteral(%v, %s) = %s, want %s", c.v, c.typ, got, c.want)
+		}
+	}
+	if got := SQLLiteral([]byte{0x58, 0x01}, dataColumn{udt: true, udtName: "hierarchyid"}); got != "CAST(0x5801 AS hierarchyid)" {
+		t.Errorf("udt literal: %s", got)
+	}
+}
+
+func TestIntegrationScriptData(t *testing.T) {
+	c := testConn(t)
+	ctx := context.Background()
+	m := NewManager()
+	defer m.Close()
+	m.Register(c)
+	s, err := m.Session(ctx, "data", c.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(script string) *recSink {
+		t.Helper()
+		sink := newSink()
+		if sum := s.Execute(ctx, script, ExecOptions{}, sink); sum.Errors > 0 {
+			t.Fatalf("script failed:\n%s\n---\n%s", sink.text(), script)
+		}
+		return sink
+	}
+	run(`IF DB_ID('sqlstudio_test') IS NULL CREATE DATABASE sqlstudio_test;
+GO
+USE sqlstudio_test;
+DROP TABLE IF EXISTS dbo.src, dbo.src_copy, dbo.src_top;
+CREATE TABLE dbo.src (
+  id int IDENTITY(10,5) PRIMARY KEY,
+  n nvarchar(100), v varchar(50), c char(3), amount decimal(19,4), m money, f float, r real,
+  g uniqueidentifier, d date, dt datetime, dt2 datetime2(7), dto datetimeoffset, tm time,
+  b varbinary(max), bit1 bit, big bigint, x xml, geo geography, h hierarchyid,
+  total AS (amount * 2), rv rowversion);
+INSERT dbo.src (n, v, c, amount, m, f, r, g, d, dt, dt2, dto, tm, b, bit1, big, x, geo, h) VALUES
+ (N'O''Brien — 日本', 'café', 'abc', 12345.6789, 9.99, 1.0/3, 0.1, NEWID(), '2024-02-29', '2024-01-02 03:04:05.997',
+  '2024-01-02 03:04:05.1234567', '2024-01-02 03:04:05.1234567 +05:30', '23:59:59.9999999', 0x00FF10, 1,
+  9007199254740993, N'<a b="1">x</a>', geography::Point(47.65, -122.34, 4326), hierarchyid::Parse('/1/2/'));
+INSERT dbo.src (n) VALUES (NULL), (N'line1
+line2'), (N'');
+INSERT dbo.src (n) SELECT TOP 2500 CONCAT(N'row ', ROW_NUMBER() OVER (ORDER BY (SELECT 1))) FROM sys.all_objects a CROSS JOIN sys.all_objects b;`)
+
+	pool, err := m.Pool(ctx, c.ID, "sqlstudio_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ScriptData(ctx, pool, "dbo", "src", ScriptDataOptions{
+		Target: "dbo.src_copy", IncludeCreate: true, IncludeIdentity: true, RowsPerInsert: 1000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Rows != 2504 || res.Truncated || res.Target != "[dbo].[src_copy]" {
+		t.Fatalf("result: rows=%d truncated=%v target=%s", res.Rows, res.Truncated, res.Target)
+	}
+	for _, w := range []string{"CREATE TABLE [dbo].[src_copy]", "CONSTRAINT [PK_src_copy]", "SET IDENTITY_INSERT [dbo].[src_copy] ON", "CAST(0x", "N'O''Brien"} {
+		if !strings.Contains(res.Script, w) {
+			t.Errorf("script missing %q", w)
+		}
+	}
+	if strings.Contains(res.Script, "[total]") && strings.Contains(res.Script, "INSERT INTO [dbo].[src_copy] ([id], [n], [v], [c], [amount], [m], [f], [r], [g], [d], [dt], [dt2], [dto], [tm], [b], [bit1], [big], [x], [geo], [h], [total]") {
+		t.Error("computed column must not be inserted")
+	}
+	run("USE sqlstudio_test;\n" + res.Script)
+
+	// Every scripted value must round-trip exactly.
+	cmp := `SELECT COUNT(*) FROM (
+	  SELECT id, n, v, c, amount, m, f, r, g, d, dt, dt2, dto, tm, b, bit1, big, CAST(x AS nvarchar(max)) x, geo.STAsText() geo, h.ToString() h FROM dbo.src
+	  EXCEPT
+	  SELECT id, n, v, c, amount, m, f, r, g, d, dt, dt2, dto, tm, b, bit1, big, CAST(x AS nvarchar(max)), geo.STAsText(), h.ToString() FROM dbo.src_copy) d`
+	sink := run(cmp)
+	if got := sink.rows[0][0][0]; got != "0" {
+		t.Errorf("%v rows differ between source and copy", got)
+	}
+	sink = run("SELECT COUNT(*) FROM dbo.src_copy")
+	if got := sink.rows[0][0][0]; got != "2504" {
+		t.Errorf("copy has %v rows", got)
+	}
+
+	// TOP + WHERE + ORDER BY, identity excluded, one row per INSERT.
+	res, err = ScriptData(ctx, pool, "dbo", "src", ScriptDataOptions{
+		Top: 3, Where: "n LIKE N'row %' -- trailing comment", OrderBy: "id DESC", Target: "src_top", IncludeCreate: true, RowsPerInsert: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Rows != 3 || strings.Contains(res.Script, "IDENTITY_INSERT") || strings.Count(res.Script, "INSERT INTO [dbo].[src_top]") != 3 {
+		t.Fatalf("top/where script wrong (rows=%d):\n%s", res.Rows, res.Script)
+	}
+	if !strings.Contains(res.Script, "N'row 2500'") {
+		t.Errorf("ORDER BY id DESC not applied:\n%s", res.Script)
+	}
+	run("USE sqlstudio_test;\n" + res.Script)
+
+	if _, err := ScriptData(ctx, pool, "dbo", "nope", ScriptDataOptions{}); err == nil {
+		t.Error("missing table should error")
+	}
+	if _, err := ScriptData(ctx, pool, "dbo", "src", ScriptDataOptions{Where: "no_such_col = 1"}); err == nil {
+		t.Error("bad filter should error")
+	}
+}

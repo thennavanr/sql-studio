@@ -40,6 +40,8 @@ class QueryTab {
   dirty = false;
   running = false;
   runToken = '';
+  nextSeq = 0;
+  pending = new Map<number, { name: string; d: any }>();
   startedAt = 0;
   lineOffset = 0;
   results: ResultSet[] = [];
@@ -453,6 +455,8 @@ export class Workspace {
     // Reset results.
     t.running = true;
     t.runToken = uid();
+    t.nextSeq = 0;
+    t.pending.clear();
     t.results = [];
     t.messages = [];
     t.summary = undefined;
@@ -491,8 +495,37 @@ export class Workspace {
     return t && t.runToken === d.runId ? t : undefined;
   }
 
+  private handlers = new Map<string, (d: any) => void>();
+
+  private onExec(name: string, fn: (d: any) => void) {
+    this.handlers.set(name, fn);
+    EventsOn(name, (d: any) => this.deliver(name, d));
+  }
+
+  /** Applies a run's events in sequence order, buffering any that arrive early. */
+  private deliver(name: string, d: any) {
+    const t = this.tabFor(d);
+    if (!t) return;
+    if (typeof d.seq !== 'number') {
+      this.handlers.get(name)?.(d);
+      return;
+    }
+    if (d.seq !== t.nextSeq) {
+      if (d.seq > t.nextSeq) t.pending.set(d.seq, { name, d });
+      return;
+    }
+    this.handlers.get(name)?.(d);
+    t.nextSeq++;
+    for (let next = t.pending.get(t.nextSeq); next; next = t.pending.get(t.nextSeq)) {
+      t.pending.delete(t.nextSeq);
+      if (t.runToken !== d.runId) return; // a new run started meanwhile
+      this.handlers.get(next.name)?.(next.d);
+      t.nextSeq++;
+    }
+  }
+
   private listen() {
-    EventsOn('exec:resultset', (d: any) => {
+    this.onExec('exec:resultset', (d: any) => {
       const t = this.tabFor(d);
       if (!t) return;
       const grid = new DataGrid();
@@ -506,7 +539,7 @@ export class Workspace {
       t.results[d.index] = { grid, rowCount: 0, truncated: false, done: false };
       this.renderResults(t);
     });
-    EventsOn('exec:rows', (d: any) => {
+    this.onExec('exec:rows', (d: any) => {
       const t = this.tabFor(d);
       const rs = t?.results[d.index];
       if (!t || !rs) return;
@@ -514,7 +547,7 @@ export class Workspace {
       rs.rowCount = rs.grid.rowCount;
       this.scheduleHead(t);
     });
-    EventsOn('exec:resultdone', (d: any) => {
+    this.onExec('exec:resultdone', (d: any) => {
       const t = this.tabFor(d);
       const rs = t?.results[d.index];
       if (!t || !rs) return;
@@ -522,7 +555,7 @@ export class Workspace {
       rs.truncated = d.truncated;
       this.scheduleHead(t);
     });
-    EventsOn('exec:message', (d: any) => {
+    this.onExec('exec:message', (d: any) => {
       const t = this.tabFor(d);
       if (!t) return;
       const m = d.message as Msg;
@@ -531,7 +564,7 @@ export class Workspace {
       this.scheduleHead(t);
       if (t.pane === 'messages') this.renderResults(t);
     });
-    EventsOn('exec:done', (d: any) => {
+    this.onExec('exec:done', (d: any) => {
       const t = this.tabFor(d);
       if (!t) return;
       const s = d.summary as Summary;

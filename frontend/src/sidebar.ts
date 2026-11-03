@@ -1,6 +1,6 @@
 import * as App from './wailsjs/go/main/App';
 import type { engine } from './wailsjs/go/models';
-import { connectionDialog, confirmDialog, contextMenu, showErrorDialog, type MenuItem } from './dialogs';
+import { connectionDialog, confirmDialog, contextMenu, scriptDataDialog, showErrorDialog, type MenuItem } from './dialogs';
 import { disconnect, ensureConnected, loadConnections, on, state } from './state';
 import { bracket, errText, h } from './util';
 import { icon } from './icons';
@@ -331,6 +331,7 @@ export class Sidebar {
           }
           if (o.kind === 'procedure') items.push({ label: 'Script as EXECUTE', action: () => this.scriptExec(connId, db, o) });
           items.push({ label: 'Script as CREATE', action: () => this.script(connId, db, o) });
+          if (hasCols) items.push({ label: 'Script Data as INSERT…', action: () => void this.scriptData(connId, db, o) });
           if (o.kind !== 'table') items.push({ label: 'Script as ALTER', action: () => this.script(connId, db, o, true) });
           items.push({ separator: true, label: '' });
           items.push({ label: 'Copy Name', action: () => void navigator.clipboard.writeText(full) });
@@ -368,6 +369,11 @@ export class Sidebar {
     } catch (e) {
       showErrorDialog('Could not script object', errText(e));
     }
+  }
+
+  private async scriptData(connId: string, db: string, o: engine.DbObject) {
+    const script = await scriptDataDialog({ connId, database: db, schema: o.schema, name: o.name, kind: o.kind });
+    if (script != null) this.actions.newQuery(connId, db, script);
   }
 
   private async scriptExec(connId: string, db: string, o: engine.DbObject) {

@@ -189,6 +189,14 @@ kbd {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
 }
+textarea.input {
+  height: auto;
+  padding: 6px 8px;
+  resize: vertical;
+}
+textarea.input.code {
+  font: 12px/1.5 var(--mono);
+}
 select.input {
   padding-right: 4px;
 }

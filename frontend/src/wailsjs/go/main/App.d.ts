@@ -14,6 +14,8 @@ export function CompletionSchema(arg1:string,arg2:string):Promise<Record<string,
 
 export function Connect(arg1:string,arg2:string):Promise<main.ConnectResult>;
 
+export function CopyText(arg1:string):Promise<void>;
+
 export function DeleteConnection(arg1:string):Promise<void>;
 
 export function Disconnect(arg1:string):Promise<void>;
@@ -47,6 +49,8 @@ export function SaveConnection(arg1:store.Connection):Promise<store.Connection>;
 export function SaveFile(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<string>;
 
 export function SaveSettings(arg1:store.Settings):Promise<void>;
+
+export function ScriptData(arg1:string,arg2:string,arg3:string,arg4:string,arg5:engine.ScriptDataOptions):Promise<engine.ScriptDataResult>;
 
 export function ScriptObject(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
 

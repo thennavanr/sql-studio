@@ -161,8 +161,14 @@ func Definition(ctx context.Context, db *sql.DB, schema, name, kind string) (str
 	if err != nil {
 		return "", err
 	}
+	return createTableScript(cols, full, name), nil
+}
+
+// createTableScript renders CREATE TABLE <target> for the given columns.
+// pkBase names the primary key constraint (PK_<pkBase>).
+func createTableScript(cols []ColumnInfo, target, pkBase string) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "CREATE TABLE %s (\n", full)
+	fmt.Fprintf(&sb, "CREATE TABLE %s (\n", target)
 	var pk []string
 	hasPK := false
 	for _, c := range cols {
@@ -187,10 +193,10 @@ func Definition(ctx context.Context, db *sql.DB, schema, name, kind string) (str
 		sb.WriteString("\n")
 	}
 	if len(pk) > 0 {
-		fmt.Fprintf(&sb, "    CONSTRAINT %s PRIMARY KEY (%s)\n", QuoteName("PK_"+name), strings.Join(pk, ", "))
+		fmt.Fprintf(&sb, "    CONSTRAINT %s PRIMARY KEY (%s)\n", QuoteName("PK_"+pkBase), strings.Join(pk, ", "))
 	}
 	sb.WriteString(");\nGO\n")
-	return sb.String(), nil
+	return sb.String()
 }
 
 // QuoteName brackets an identifier like T-SQL QUOTENAME.
