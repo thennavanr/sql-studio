@@ -226,7 +226,7 @@ export class Sidebar {
         this.row(0, {
           key: ck,
           label: p.name,
-          iconName: 'server',
+          iconName: p.kind === 'mongodb' ? 'leaf' : 'server',
           color: p.color || undefined,
           expandable: true,
           expanded: open,

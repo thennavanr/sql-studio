@@ -4,6 +4,7 @@ const PATHS: Record<string, string> = {
   chevronRight: '<path d="m9 6 6 6-6 6"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  leaf: '<path d="M12 2c4.4 3.6 7 7.5 7 11.3 0 3.7-2.7 6.6-7 8.4-4.3-1.8-7-4.7-7-8.4C5 9.5 7.6 5.6 12 2z"/><path d="M12 7v15"/>',
   database: '<ellipse cx="12" cy="5.5" rx="8" ry="2.5"/><path d="M4 5.5v13c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-13"/><path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 10v10"/>',
