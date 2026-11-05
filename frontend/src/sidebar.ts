@@ -4,18 +4,26 @@ import { connectionDialog, confirmDialog, contextMenu, scriptDataDialog, showErr
 import { disconnect, ensureConnected, loadConnections, on, state } from './state';
 import { bracket, errText, h } from './util';
 import { icon } from './icons';
+import { collectionRef } from './editor';
 
 export interface SidebarActions {
   newQuery: (connId: string, db?: string, text?: string, run?: boolean) => void;
+  insertDocument: (connId: string, db: string, collection: string) => void;
 }
 
-type Kind = 'table' | 'view' | 'procedure' | 'function';
+type Kind = 'table' | 'view' | 'procedure' | 'function' | 'collection';
 const FOLDERS: [Kind, string][] = [
   ['table', 'Tables'],
   ['view', 'Views'],
   ['procedure', 'Stored Procedures'],
   ['function', 'Functions'],
 ];
+const MONGO_FOLDERS: [Kind, string][] = [
+  ['collection', 'Collections'],
+  ['view', 'Views'],
+];
+
+const objName = (o: engine.DbObject) => (o.schema ? `${o.schema}.${o.name}` : o.name);
 
 interface Loadable<T> {
   loading?: boolean;
@@ -234,7 +242,7 @@ export class Sidebar {
       );
       if (!open) continue;
       if (cs.status === 'connecting') {
-        out.push(this.status(1, p.auth === 'sql' ? 'Connecting…' : 'Signing in… (check your browser)'));
+        out.push(this.status(1, p.kind === 'mongodb' || p.auth === 'sql' ? 'Connecting…' : 'Signing in… (check your browser)'));
         continue;
       }
       if (cs.status === 'error') {
@@ -282,9 +290,9 @@ export class Sidebar {
       out.push(this.status(2, objs.error, true));
       return;
     }
-    for (const [kind, label] of FOLDERS) {
+    for (const [kind, label] of this.isMongo(connId) ? MONGO_FOLDERS : FOLDERS) {
       let items = (objs?.data ?? []).filter((o) => o.kind === kind);
-      if (filter) items = items.filter((o) => `${o.schema}.${o.name}`.toLowerCase().includes(filter));
+      if (filter) items = items.filter((o) => objName(o).toLowerCase().includes(filter));
       const fk = this.key('f', connId, db, kind);
       const fopen = this.expanded.has(fk) || (!!filter && items.length > 0);
       if (filter && !items.length) continue;
@@ -306,7 +314,43 @@ export class Sidebar {
     }
   }
 
+  private isMongo(connId: string) {
+    return state.conns.get(connId)?.profile.kind === 'mongodb';
+  }
+
+  private renderMongoObject(out: HTMLElement[], connId: string, db: string, o: engine.DbObject) {
+    const ref = collectionRef(o.name);
+    const isView = o.kind === 'view';
+    out.push(
+      this.row(3, {
+        key: this.key('o', connId, db, o.name),
+        label: o.name,
+        iconName: isView ? 'view' : 'collection',
+        onOpen: () => this.actions.newQuery(connId, db, `${ref}.find({})\n  .limit(100)\n`, true),
+        menu: () => {
+          const items: MenuItem[] = [
+            { label: 'Find Documents', action: () => this.actions.newQuery(connId, db, `${ref}.find({})\n  .limit(100)\n`, true) },
+            { label: 'Count Documents', action: () => this.actions.newQuery(connId, db, `${ref}.countDocuments({})\n`, true) },
+            {
+              label: 'Aggregate…',
+              action: () =>
+                this.actions.newQuery(connId, db, `${ref}.aggregate([\n  { $match: {} },\n  { $group: { _id: null, count: { $sum: 1 } } }\n])\n`),
+            },
+          ];
+          if (!isView) {
+            items.push({ label: 'Insert Document…', action: () => this.actions.insertDocument(connId, db, o.name) });
+            items.push({ label: 'Indexes', action: () => this.actions.newQuery(connId, db, `${ref}.getIndexes()\n`, true) });
+          }
+          items.push({ separator: true, label: '' });
+          items.push({ label: 'Copy Name', action: () => void navigator.clipboard.writeText(o.name) });
+          return items;
+        },
+      }),
+    );
+  }
+
   private renderObject(out: HTMLElement[], connId: string, db: string, o: engine.DbObject) {
+    if (this.isMongo(connId)) return this.renderMongoObject(out, connId, db, o);
     const ok = this.key('o', connId, db, o.schema, o.name);
     const hasCols = o.kind === 'table' || o.kind === 'view';
     const open = this.expanded.has(ok);

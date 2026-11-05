@@ -165,6 +165,8 @@ export namespace store {
 	export class Connection {
 	    id: string;
 	    name: string;
+	    kind?: string;
+	    uri?: string;
 	    server: string;
 	    port?: number;
 	    database?: string;
@@ -189,6 +191,8 @@ export namespace store {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.uri = source["uri"];
 	        this.server = source["server"];
 	        this.port = source["port"];
 	        this.database = source["database"];

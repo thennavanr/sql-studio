@@ -38,6 +38,12 @@ export function ListDatabases(arg1:string):Promise<Array<string>>;
 
 export function ListObjects(arg1:string,arg2:string):Promise<Array<engine.DbObject>>;
 
+export function MongoDeleteDocument(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function MongoInsertDocument(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
+export function MongoReplaceDocument(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
+
 export function OpenFile():Promise<main.FileResult>;
 
 export function OpenURL(arg1:string):Promise<void>;

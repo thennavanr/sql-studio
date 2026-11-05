@@ -37,8 +37,12 @@ const (
 
 // Connection is a saved connection profile.
 type Connection struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Kind is the database engine: "" or KindSQLServer, or KindMongoDB.
+	Kind string `json:"kind,omitempty"`
+	// URI is the MongoDB connection string, stored without its password.
+	URI      string   `json:"uri,omitempty"`
 	Server   string   `json:"server"`
 	Port     int      `json:"port,omitempty"`
 	Database string   `json:"database,omitempty"`
@@ -59,6 +63,15 @@ type Connection struct {
 	// Password is only populated in transit (UI <-> backend); never persisted to disk.
 	Password string `json:"password,omitempty"`
 }
+
+// Database engines.
+const (
+	KindSQLServer = "sqlserver"
+	KindMongoDB   = "mongodb"
+)
+
+// IsMongo reports whether the profile is a MongoDB connection.
+func (c Connection) IsMongo() bool { return c.Kind == KindMongoDB }
 
 // HistoryEntry records an executed query.
 type HistoryEntry struct {
@@ -193,12 +206,31 @@ func (s *Store) Get(id string) (Connection, error) {
 	return Connection{}, errors.New("connection not found")
 }
 
+// Lookup returns a profile without reading its secret from the keychain.
+func (s *Store) Lookup(id string) (Connection, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.data.Connections {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return Connection{}, false
+}
+
 // Save creates or updates a connection. The secret is stored in the keychain
 // when SavePassword is set, and removed otherwise.
 func (s *Store) Save(c Connection) (Connection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.TrimSpace(c.Server) == "" {
+	if c.IsMongo() {
+		if strings.TrimSpace(c.URI) == "" {
+			return c, errors.New("connection string is required")
+		}
+		if c.Name == "" {
+			c.Name = c.Server // callers set Server to the URI's host list
+		}
+	} else if strings.TrimSpace(c.Server) == "" {
 		return c, errors.New("server is required")
 	}
 	if c.ID == "" {

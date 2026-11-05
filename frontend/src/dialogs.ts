@@ -253,6 +253,14 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
   const hint = h('p', { class: 'hint' });
   const status = h('div', { class: 'test-status' });
 
+  let kind: 'sqlserver' | 'mongodb' = c.kind === 'mongodb' ? 'mongodb' : 'sqlserver';
+  const mf = {
+    uri: inp(c.uri, { placeholder: 'mongodb+srv://user@cluster0.example.mongodb.net/', spellcheck: 'false', autocapitalize: 'off' }),
+    password: inp('', { type: 'password', placeholder: hasSaved ? '•••••••• (saved in Keychain)' : 'leave empty if the connection string has no user' }),
+    savePassword: h('input', { type: 'checkbox', checked: c.savePassword !== false }),
+    database: inp(c.database, { placeholder: 'optional – e.g. shop', spellcheck: 'false', autocapitalize: 'off' }),
+  };
+
   const update = () => {
     const a = f.auth.value;
     const entra = a !== 'sql';
@@ -297,8 +305,24 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
   }, 'Paste connection string…');
 
   const collect = (): Connection =>
-    store.Connection.createFrom({
+    kind === 'mongodb'
+      ? store.Connection.createFrom({
+          ...c,
+          kind: 'mongodb',
+          uri: mf.uri.value.trim(),
+          password: mf.password.value,
+          savePassword: mf.savePassword.checked,
+          database: mf.database.value.trim(),
+          name: f.name.value.trim(),
+          group: f.group.value.trim(),
+          server: '',
+          auth: '',
+          color,
+        })
+      : store.Connection.createFrom({
       ...c,
+      kind: '',
+      uri: '',
       server: f.server.value.trim(),
       auth: f.auth.value,
       user: userRow.hidden ? '' : f.user.value.trim(),
@@ -317,10 +341,9 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
       color,
     });
 
-  const body = h(
+  const sqlSection = h(
     'div',
-    { class: 'form conn-form' },
-    h('div', { class: 'row-between' }, h('span', { class: 'section' }, 'Connection'), pasteLink),
+    { class: 'form' },
     h('label', { class: 'field' }, h('span', {}, 'Server'), f.server),
     h('label', { class: 'field' }, h('span', {}, 'Authentication'), f.auth),
     hint,
@@ -329,19 +352,76 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
     tenantRow,
     h('label', { class: 'field' }, h('span', {}, 'Database'), f.database),
     dbList,
+  );
+  const mongoSection = h(
+    'div',
+    { class: 'form' },
+    h('label', { class: 'field' }, h('span', {}, 'Connection string'), mf.uri),
+    h(
+      'p',
+      { class: 'hint' },
+      'From Atlas (Connect → Drivers), Azure Cosmos DB for MongoDB (Connection strings) or your server, e.g. mongodb://localhost:27017. ' +
+        'A password inside the connection string is moved to your Keychain and removed from the saved string.',
+    ),
+    h(
+      'div',
+      { class: 'field' },
+      h('label', {}, 'Password'),
+      mf.password,
+      h('label', { class: 'check' }, mf.savePassword, ' Remember in Keychain'),
+    ),
+    h('label', { class: 'field' }, h('span', {}, 'Default database'), mf.database),
+  );
+  const sqlAdvanced = h(
+    'details',
+    { class: 'advanced' },
+    h('summary', {}, 'Advanced'),
+    h('div', { class: 'grid2' }, h('label', { class: 'field' }, h('span', {}, 'Encrypt'), f.encrypt), h('label', { class: 'field' }, h('span', {}, 'Port'), f.port)),
+    h('div', { class: 'grid2' }, h('label', { class: 'field' }, h('span', {}, 'Connect timeout (s)'), f.timeout), clientRow),
+    h('label', { class: 'check' }, f.trust, ' Trust server certificate (local / dev servers only)'),
+    h('label', { class: 'check' }, f.readOnly, ' Read-only intent (route to readable secondary)'),
+  );
+  const kindButtons = (['sqlserver', 'mongodb'] as const).map((k) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'seg' + (kind === k ? ' on' : ''),
+        onclick: () => {
+          kind = k;
+          applyKind();
+          (k === 'mongodb' ? mf.uri : f.server).focus();
+        },
+      },
+      k === 'sqlserver' ? 'SQL Server / Azure SQL' : 'MongoDB',
+    ),
+  );
+  const applyKind = () => {
+    kindButtons.forEach((b, i) => b.classList.toggle('on', (i === 0 ? 'sqlserver' : 'mongodb') === kind));
+    sqlSection.hidden = kind !== 'sqlserver';
+    sqlAdvanced.hidden = kind !== 'sqlserver';
+    pasteLink.hidden = kind !== 'sqlserver';
+    mongoSection.hidden = kind !== 'mongodb';
+    status.textContent = '';
+  };
+  const missing = (): string => {
+    if (kind === 'mongodb') return mf.uri.value.trim() ? '' : 'Connection string is required.';
+    return f.server.value.trim() ? '' : 'Server is required.';
+  };
+
+  const body = h(
+    'div',
+    { class: 'form conn-form' },
+    h('div', { class: 'segmented' }, ...kindButtons),
+    h('div', { class: 'row-between' }, h('span', { class: 'section' }, 'Connection'), pasteLink),
+    sqlSection,
+    mongoSection,
     h('div', { class: 'grid2' }, h('label', { class: 'field' }, h('span', {}, 'Name'), f.name), h('label', { class: 'field' }, h('span', {}, 'Group'), f.group)),
     h('div', { class: 'field' }, h('span', {}, 'Color'), swatches),
-    h(
-      'details',
-      { class: 'advanced' },
-      h('summary', {}, 'Advanced'),
-      h('div', { class: 'grid2' }, h('label', { class: 'field' }, h('span', {}, 'Encrypt'), f.encrypt), h('label', { class: 'field' }, h('span', {}, 'Port'), f.port)),
-      h('div', { class: 'grid2' }, h('label', { class: 'field' }, h('span', {}, 'Connect timeout (s)'), f.timeout), clientRow),
-      h('label', { class: 'check' }, f.trust, ' Trust server certificate (local / dev servers only)'),
-      h('label', { class: 'check' }, f.readOnly, ' Read-only intent (route to readable secondary)'),
-    ),
+    sqlAdvanced,
     status,
   );
+  applyKind();
 
   const result = await modal(
     isNew ? 'New Connection' : 'Edit Connection',
@@ -359,9 +439,10 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
         onclick: async (e: Event) => {
           const btn = e.currentTarget as HTMLButtonElement;
           const conn = collect();
-          if (!conn.server) {
+          const miss = missing();
+          if (miss) {
             status.className = 'test-status err';
-            status.textContent = 'Server is required.';
+            status.textContent = miss;
             return;
           }
           btn.disabled = true;
@@ -371,7 +452,7 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
           try {
             const info = await App.TestConnection(conn);
             status.className = 'test-status ok';
-            status.textContent = `✓ Connected in ${formatDuration(Math.round(performance.now() - t0))} — ${info.edition} ${info.version} as ${info.login}`;
+            status.textContent = `✓ Connected in ${formatDuration(Math.round(performance.now() - t0))} — ${info.edition} ${info.version}${info.login ? ' as ' + info.login : ''}`;
           } catch (err) {
             status.className = 'test-status err';
             status.textContent = errText(err);
@@ -382,10 +463,11 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
       }, 'Test Connection'),
       onButton: async (v) => {
         if (v === 'cancel') return true;
-        if (!f.server.value.trim()) {
+        const miss = missing();
+        if (miss) {
           status.className = 'test-status err';
-          status.textContent = 'Server is required.';
-          f.server.focus();
+          status.textContent = miss;
+          (kind === 'mongodb' ? mf.uri : f.server).focus();
           return false;
         }
         return true;

@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   test:
-    name: Go tests (with SQL Server)
+    name: Go tests (with SQL Server and MongoDB)
     runs-on: ubuntu-latest
     services:
       mssql:
@@ -29,6 +29,15 @@ jobs:
         options: >-
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Str0ng!Passw0rd' -Q 'SELECT 1' || exit 1"
           --health-interval 10s --health-timeout 5s --health-retries 12
+      mongo:
+        image: mongo:7
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: 'Str0ng!Pass'
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -39,6 +48,7 @@ jobs:
           SQLSTUDIO_TEST_SERVER: localhost
           SQLSTUDIO_TEST_USER: sa
           SQLSTUDIO_TEST_PASSWORD: 'Str0ng!Passw0rd'
+          SQLSTUDIO_TEST_MONGO_URI: 'mongodb://admin:Str0ng%21Pass@localhost:27017/?authSource=admin'
         run: go test -race ./internal/...
 
   macos:

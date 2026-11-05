@@ -2,7 +2,8 @@ import type { EditorView } from '@codemirror/view';
 import * as App from './wailsjs/go/main/App';
 import { EventsOn } from './wailsjs/runtime/runtime';
 import { DataGrid, type Cell, type GridColumn } from './grid';
-import { createEditor, formatSQL, gotoLine, setCompletionSchema, setEditorFont, setEditorTheme } from './editor';
+import { createEditor, formatSQL, gotoLine, setCompletionSchema, setEditorFont, setEditorTheme, setMongoMode, setSQLMode } from './editor';
+import { DocsView, insertDocumentDialog, type DocsInfo } from './docs';
 import { cellViewer, confirmDialog, connectionDialog, contextMenu, infoDialog, promptText, showErrorDialog } from './dialogs';
 import { emit, ensureConnected, on, state } from './state';
 import { currentStatement, errText, formatDuration, h, toCSV, toInsert, toJSON, toMarkdown, uid } from './util';
@@ -13,6 +14,9 @@ interface ResultSet {
   rowCount: number;
   truncated: boolean;
   done: boolean;
+  docs?: DocsInfo; // MongoDB results
+  docsView?: DocsView;
+  view: 'docs' | 'table';
 }
 
 interface Summary {
@@ -40,6 +44,7 @@ class QueryTab {
   dirty = false;
   running = false;
   runToken = '';
+  mode: 'sql' | 'mongo' = 'sql';
   nextSeq = 0;
   pending = new Map<number, { name: string; d: any }>();
   startedAt = 0;
@@ -86,6 +91,7 @@ export class Workspace {
   private counter = 0;
   private schemaCache = new Map<string, Promise<Record<string, string[]>>>();
   private resultsFrac = 0.45;
+  private mongoView: 'docs' | 'table' = 'docs';
   private ticker = 0;
   private saveTimer = 0;
   readonly toolbar: HTMLElement;
@@ -130,6 +136,7 @@ export class Workspace {
     this.statusbar = h('footer', { class: 'statusbar' }, this.statusLeft, this.statusRight);
 
     on('connections', () => {
+      for (const x of this.tabs) this.applyMode(x);
       // A tab without a connection adopts the first one that gets connected.
       const t = this.active;
       if (t && (!t.connId || !state.conns.has(t.connId))) {
@@ -163,7 +170,7 @@ export class Workspace {
       'div',
       { class: 'welcome' },
       h('h1', {}, 'SQL Studio'),
-      h('p', { class: 'muted' }, 'A lightweight client for SQL Server and Azure SQL.'),
+      h('p', { class: 'muted' }, 'A lightweight client for SQL Server, Azure SQL and MongoDB.'),
       h(
         'div',
         { class: 'welcome-actions' },
@@ -212,6 +219,7 @@ export class Workspace {
       },
     });
     this.setupSplitter(t);
+    this.applyMode(t);
     this.activate(t);
     if (t.connId && !opts.lazy) void ensureConnected(t.connId).then((ok) => ok && this.loadSchema(t));
     this.persist();
@@ -384,6 +392,7 @@ export class Workspace {
   setConnection(t: QueryTab, connId: string, database?: string) {
     if (t.connId !== connId) void App.CloseTab(t.id);
     t.connId = connId;
+    this.applyMode(t);
     const cs = state.conns.get(connId);
     t.database = database ?? (cs?.profile.database || cs?.info?.database || '');
     this.renderToolbar();
@@ -409,8 +418,29 @@ export class Workspace {
       this.schemaCache.set(key, p);
     }
     void p.then((schema) => {
-      if (t.connId + ':' + t.database === key && this.tabs.includes(t)) setCompletionSchema(t.view, schema ?? {});
+      if (t.connId + ':' + t.database !== key || !this.tabs.includes(t)) return;
+      if (this.isMongoTab(t)) setMongoMode(t.view, schema ?? {});
+      else setCompletionSchema(t.view, schema ?? {});
     });
+  }
+
+  private isMongoTab(t: QueryTab) {
+    return state.conns.get(t.connId)?.profile.kind === 'mongodb';
+  }
+
+  /** Puts the tab's editor in SQL or MongoDB mode to match its connection. */
+  private applyMode(t: QueryTab) {
+    const mode = this.isMongoTab(t) ? 'mongo' : 'sql';
+    if (t.mode === mode) return;
+    t.mode = mode;
+    if (mode === 'mongo') setMongoMode(t.view);
+    else setSQLMode(t.view);
+  }
+
+  /** Opens the insert dialog for a collection (from the explorer or a result). */
+  async insertDocument(connId: string, db: string, coll: string) {
+    const id = await insertDocumentDialog(connId, db, coll);
+    if (id) await infoDialog('Document inserted', `Inserted a document with _id ${id} into ${db}.${coll}.`);
   }
 
   invalidateSchema(connId: string) {
@@ -536,7 +566,15 @@ export class Workspace {
         this.selInfo = s;
         this.updateStatus();
       };
-      t.results[d.index] = { grid, rowCount: 0, truncated: false, done: false };
+      t.results[d.index] = { grid, rowCount: 0, truncated: false, done: false, view: 'table' };
+      this.renderResults(t);
+    });
+    this.onExec('exec:docs', (d: any) => {
+      const t = this.tabFor(d);
+      const rs = t?.results[d.index];
+      if (!t || !rs) return;
+      rs.docs = d.info as DocsInfo;
+      rs.view = this.mongoView;
       this.renderResults(t);
     });
     this.onExec('exec:rows', (d: any) => {
@@ -583,7 +621,7 @@ export class Workspace {
         time: Date.now(),
       });
       // DDL may have changed objects; refresh autocomplete lazily.
-      if (/\b(create|alter|drop|sp_rename)\b/i.test(t.view.state.doc.toString())) {
+      if (/\b(create|alter|drop|sp_rename|createCollection|insertOne|insertMany)\b/i.test(t.view.state.doc.toString())) {
         this.invalidateSchema(t.connId);
         this.loadSchema(t);
       }
@@ -647,7 +685,14 @@ export class Workspace {
       return;
     }
     const rs = t.results[t.activeResult];
-    if (rs) body.replaceChildren(rs.grid.el);
+    if (rs?.docs && rs.view === 'docs') {
+      if (!rs.docsView)
+        rs.docsView = new DocsView(t.connId, rs.docs, (msg) => {
+          t.messages.push({ kind: 'info', text: msg, time: Date.now() });
+          this.renderResultsHead(t);
+        });
+      body.replaceChildren(rs.docsView.el);
+    } else if (rs) body.replaceChildren(rs.grid.el);
     else if (t.running) body.replaceChildren(h('div', { class: 'results-empty' }, h('span', { class: 'spinner' }), ' Executing query…'));
     else if (t.summary) body.replaceChildren(h('div', { class: 'results-empty' }, 'No result sets. See Messages.'));
     else body.replaceChildren(h('div', { class: 'results-empty' }, 'Run a query to see results here.'));
@@ -688,10 +733,37 @@ export class Workspace {
     );
     const rs = t.results[t.activeResult];
     const canExport = t.pane === 'results' && !!rs && rs.rowCount > 0;
+    const docs = t.pane === 'results' ? rs?.docs : undefined;
+    const setView = (v: 'docs' | 'table') => {
+      if (!rs) return;
+      rs.view = v;
+      this.mongoView = v;
+      this.renderResults(t);
+    };
     const actions = h(
       'div',
       { class: 'results-actions' },
-      rs?.truncated ? h('span', { class: 'warn', title: 'Increase in Settings' }, `Limited to ${state.settings.maxRows.toLocaleString()} rows`) : null,
+      docs
+        ? h(
+            'div',
+            { class: 'segmented small' },
+            h('button', { class: 'seg' + (rs!.view === 'docs' ? ' on' : ''), onclick: () => setView('docs') }, 'Documents'),
+            h('button', { class: 'seg' + (rs!.view === 'table' ? ' on' : ''), onclick: () => setView('table') }, 'Table'),
+          )
+        : null,
+      docs?.collection && docs.editable
+        ? h(
+            'button',
+            { class: 'btn small', title: `Insert a document into ${docs.collection}`, onclick: () => void this.insertDocument(t.connId, docs.database, docs.collection) },
+            icon('plus', 12),
+            'Insert',
+          )
+        : null,
+      docs?.truncated
+        ? h('span', { class: 'warn', title: 'Use .limit() and .skip() to page' }, `First ${docs.docs.length.toLocaleString()} documents`)
+        : rs?.truncated
+          ? h('span', { class: 'warn', title: 'Increase in Settings' }, `Limited to ${state.settings.maxRows.toLocaleString()} rows`)
+          : null,
       h('button', { class: 'btn small', disabled: !canExport, title: 'Export as CSV', onclick: () => this.export(rs!, 'csv') }, icon('download', 12), 'CSV'),
       h('button', { class: 'btn small', disabled: !canExport, title: 'Export as JSON', onclick: () => this.export(rs!, 'json') }, icon('download', 12), 'JSON'),
       h(
@@ -699,8 +771,8 @@ export class Workspace {
         {
           class: 'btn small',
           disabled: !canExport,
-          title: 'Copy all rows with headers',
-          onclick: () => void navigator.clipboard.writeText(toTSV(rs!.grid)),
+          title: docs && rs!.view === 'docs' ? 'Copy all documents' : 'Copy all rows with headers',
+          onclick: () => void App.CopyText(docs && rs!.view === 'docs' ? docs.docs.join('\n\n') : toTSV(rs!.grid)),
         },
         icon('copy', 12),
         'Copy',
@@ -719,7 +791,8 @@ export class Workspace {
   private async export(rs: ResultSet, fmt: 'csv' | 'json') {
     const cols = rs.grid.columns;
     const rows = rs.grid.displayRows();
-    const content = fmt === 'csv' ? toCSV(cols, rows) : toJSON(cols, rows);
+    const content =
+      fmt === 'csv' ? toCSV(cols, rows) : rs.docs ? '[\n' + rs.docs.json.join(',\n') + '\n]\n' : toJSON(cols, rows);
     const name = `${(this.active?.title || 'results').replace(/[^\w.-]+/g, '_')}.${fmt}`;
     try {
       await App.ExportText(name, content);
@@ -800,7 +873,10 @@ export class Workspace {
     if (cs) {
       left.push(h('span', { class: 'status-dot ' + cs.status }));
       left.push(h('span', {}, cs.profile.name));
-      if (cs.info) left.push(h('span', { class: 'muted' }, `${cs.info.login} · ${cs.info.isAzure ? 'Azure SQL' : 'SQL Server'} ${cs.info.version}`));
+      if (cs.info) {
+        const product = cs.profile.kind === 'mongodb' ? cs.info.edition : cs.info.isAzure ? 'Azure SQL' : 'SQL Server';
+        left.push(h('span', { class: 'muted' }, `${cs.info.login ? cs.info.login + ' · ' : ''}${product} ${cs.info.version}`));
+      }
       if (t?.database) left.push(h('span', { class: 'muted' }, t.database));
     } else left.push(h('span', { class: 'muted' }, t ? 'Not connected' : 'Ready'));
     this.statusLeft.replaceChildren(...left);
@@ -818,7 +894,8 @@ export class Workspace {
           s.cancelled ? 'Cancelled' : s.errors ? `Completed with ${s.errors} error${s.errors > 1 ? 's' : ''}` : 'Query succeeded',
         ),
       );
-      right.push(h('span', {}, `${rows.toLocaleString()} row${rows === 1 ? '' : 's'}`));
+      const noun = t && this.isMongoTab(t) ? 'document' : 'row';
+      right.push(h('span', {}, `${rows.toLocaleString()} ${noun}${rows === 1 ? '' : 's'}`));
       right.push(h('span', {}, formatDuration(s.elapsedMs)));
     }
     this.statusRight.replaceChildren(...right);
@@ -829,6 +906,10 @@ export class Workspace {
   async format() {
     const t = this.active;
     if (!t) return;
+    if (this.isMongoTab(t)) {
+      await infoDialog('Format', 'Formatting is available for SQL query tabs.');
+      return;
+    }
     try {
       await formatSQL(t.view);
     } catch (e) {

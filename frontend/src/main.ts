@@ -25,6 +25,7 @@ async function boot() {
 
   const sidebar = new Sidebar({
     newQuery: (connId, db, text, run) => ws.newTabFor(connId, db, text, run),
+    insertDocument: (connId, db, coll) => void ws.insertDocument(connId, db, coll),
   });
   const ws: Workspace = new Workspace(() => void sidebar.addConnection());
 

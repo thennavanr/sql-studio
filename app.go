@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/thennavanr/sql-studio/internal/engine"
+	"github.com/thennavanr/sql-studio/internal/mongo"
 	"github.com/thennavanr/sql-studio/internal/store"
 )
 
@@ -23,6 +24,7 @@ type App struct {
 	ctx   context.Context
 	store *store.Store
 	mgr   *engine.Manager
+	mongo *mongo.Manager
 
 	mu   sync.Mutex
 	runs map[string]*run // tab ID -> current run (incl. connecting)
@@ -35,7 +37,7 @@ type run struct {
 
 // NewApp creates the application backend.
 func NewApp(st *store.Store) *App {
-	return &App{store: st, mgr: engine.NewManager(), runs: map[string]*run{}}
+	return &App{store: st, mgr: engine.NewManager(), mongo: mongo.NewManager(), runs: map[string]*run{}}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -49,7 +51,10 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
-func (a *App) shutdown(context.Context) { a.mgr.Close() }
+func (a *App) shutdown(context.Context) {
+	a.mgr.Close()
+	a.mongo.Close()
+}
 
 // ---- Connections ----
 
@@ -58,6 +63,13 @@ func (a *App) ListConnections() []store.Connection { return a.store.List() }
 
 // SaveConnection creates or updates a profile. An empty password keeps the saved one.
 func (a *App) SaveConnection(c store.Connection) (store.Connection, error) {
+	if c.IsMongo() {
+		var err error
+		if c, err = mongo.Normalize(c); err != nil {
+			return c, err
+		}
+		a.mongo.Disconnect(c.ID)
+	}
 	saved, err := a.store.Save(c)
 	if err != nil {
 		return saved, err
@@ -72,6 +84,7 @@ func (a *App) SaveConnection(c store.Connection) (store.Connection, error) {
 // DeleteConnection removes a profile and its keychain secret.
 func (a *App) DeleteConnection(id string) error {
 	a.mgr.Disconnect(id)
+	a.mongo.Disconnect(id)
 	return a.store.Delete(id)
 }
 
@@ -93,6 +106,9 @@ func (a *App) TestConnection(c store.Connection) (engine.ServerInfo, error) {
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 3*time.Minute)
 	defer cancel()
+	if c.IsMongo() {
+		return a.testMongo(ctx, c)
+	}
 	return engine.Test(ctx, c, a.mgr.OnDeviceCode)
 }
 
@@ -115,6 +131,9 @@ func (a *App) Connect(id, password string) (ConnectResult, error) {
 	}
 	if password != "" {
 		c.Password = password
+	}
+	if c.IsMongo() {
+		return a.connectMongo(c)
 	}
 	if needsSecret(c.Auth) && c.Password == "" {
 		return ConnectResult{}, errors.New(ErrPasswordRequired)
@@ -140,7 +159,10 @@ func (a *App) Connect(id, password string) (ConnectResult, error) {
 }
 
 // Disconnect closes all pools and editor sessions of a connection.
-func (a *App) Disconnect(id string) { a.mgr.Disconnect(id) }
+func (a *App) Disconnect(id string) {
+	a.mgr.Disconnect(id)
+	a.mongo.Disconnect(id)
+}
 
 // ---- Object explorer ----
 
@@ -150,6 +172,9 @@ func (a *App) metaCtx() (context.Context, context.CancelFunc) {
 
 // ListDatabases lists databases visible to the connection.
 func (a *App) ListDatabases(connID string) ([]string, error) {
+	if a.isMongo(connID) {
+		return a.mongoDatabases(connID)
+	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
 	db, err := a.mgr.Pool(ctx, connID, "")
@@ -161,6 +186,9 @@ func (a *App) ListDatabases(connID string) ([]string, error) {
 
 // ListObjects lists tables, views, procedures and functions of a database.
 func (a *App) ListObjects(connID, database string) ([]engine.DbObject, error) {
+	if a.isMongo(connID) {
+		return a.mongoCollections(connID, database)
+	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
 	db, err := a.mgr.Pool(ctx, connID, database)
@@ -172,6 +200,9 @@ func (a *App) ListObjects(connID, database string) ([]engine.DbObject, error) {
 
 // ListColumns lists columns of a table or view.
 func (a *App) ListColumns(connID, database, schema, name string) ([]engine.ColumnInfo, error) {
+	if a.isMongo(connID) {
+		return nil, errNotForMongo
+	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
 	db, err := a.mgr.Pool(ctx, connID, database)
@@ -183,6 +214,9 @@ func (a *App) ListColumns(connID, database, schema, name string) ([]engine.Colum
 
 // CompletionSchema returns "schema.table" -> columns for autocomplete.
 func (a *App) CompletionSchema(connID, database string) (map[string][]string, error) {
+	if a.isMongo(connID) {
+		return a.mongoCompletion(connID, database)
+	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
 	db, err := a.mgr.Pool(ctx, connID, database)
@@ -194,6 +228,9 @@ func (a *App) CompletionSchema(connID, database string) (map[string][]string, er
 
 // ScriptObject returns a CREATE script for an object.
 func (a *App) ScriptObject(connID, database, schema, name, kind string) (string, error) {
+	if a.isMongo(connID) {
+		return "", errNotForMongo
+	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
 	db, err := a.mgr.Pool(ctx, connID, database)
@@ -205,6 +242,9 @@ func (a *App) ScriptObject(connID, database, schema, name, kind string) (string,
 
 // ScriptData generates INSERT statements with the rows of a table or view.
 func (a *App) ScriptData(connID, database, schema, name string, opts engine.ScriptDataOptions) (engine.ScriptDataResult, error) {
+	if a.isMongo(connID) {
+		return engine.ScriptDataResult{}, errNotForMongo
+	}
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Minute)
 	defer cancel()
 	db, err := a.mgr.Pool(ctx, connID, database)
@@ -280,8 +320,9 @@ func (a *App) Execute(tabID, runID, connID, database, script string) {
 		}()
 		start := time.Now()
 		var sum engine.Summary
-		sess, err := a.mgr.Session(ctx, tabID, connID, database)
-		if err != nil {
+		if a.isMongo(connID) {
+			sum = a.executeMongo(ctx, connID, database, script, settings, sink)
+		} else if sess, err := a.mgr.Session(ctx, tabID, connID, database); err != nil {
 			sink.Message(engine.Message{Kind: "error", Text: err.Error(), Time: time.Now().UnixMilli()})
 			sum = engine.Summary{Errors: 1, Cancelled: ctx.Err() != nil, ElapsedMs: time.Since(start).Milliseconds(), Database: database}
 		} else {

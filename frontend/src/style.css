@@ -975,6 +975,28 @@ dialog.modal form {
   gap: 6px;
   font-size: 12.5px;
 }
+.segmented {
+  display: flex;
+  padding: 2px;
+  gap: 2px;
+  background: var(--bg-hover);
+  border-radius: 8px;
+}
+.seg {
+  flex: 1;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.seg.on {
+  background: var(--bg-elev);
+  color: var(--text);
+  font-weight: 500;
+  box-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.15);
+}
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1178,4 +1200,140 @@ dialog.modal form {
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* ---------- MongoDB documents view ---------- */
+.segmented.small {
+  padding: 1px;
+  margin-right: 6px;
+}
+.segmented.small .seg {
+  height: 20px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  flex: none;
+}
+.docs-view {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 8px 10px 16px;
+}
+.doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doc-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+.doc-card:hover {
+  border-color: var(--border);
+}
+.doc-card.changed {
+  border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+}
+.doc-card.deleted {
+  opacity: 0.45;
+}
+.doc-card.deleted .doc-pre {
+  text-decoration: line-through;
+}
+.doc-num {
+  padding: 8px 6px;
+  text-align: right;
+  color: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  border-right: 1px solid var(--border-soft);
+}
+.doc-pre {
+  margin: 0;
+  padding: 8px 12px;
+  font: 12px/1.55 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  min-width: 0;
+}
+.doc-pre .k {
+  color: #9b4dca;
+}
+.doc-pre .s {
+  color: #1a7f37;
+}
+.doc-pre .n {
+  color: #0a58ca;
+}
+.doc-pre .b {
+  color: #b35900;
+}
+.doc-pre .f {
+  color: #a1265b;
+}
+.doc-pre .r {
+  color: #b02a37;
+}
+:root[data-resolved-theme='dark'] .doc-pre .k {
+  color: #c792ea;
+}
+:root[data-resolved-theme='dark'] .doc-pre .s {
+  color: #98c379;
+}
+:root[data-resolved-theme='dark'] .doc-pre .n {
+  color: #61afef;
+}
+:root[data-resolved-theme='dark'] .doc-pre .b {
+  color: #e5a35b;
+}
+:root[data-resolved-theme='dark'] .doc-pre .f {
+  color: #ff7eb6;
+}
+:root[data-resolved-theme='dark'] .doc-pre .r {
+  color: #f07178;
+}
+.doc-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  background: var(--bg);
+  border-radius: 6px;
+}
+.doc-card:hover .doc-actions,
+.doc-actions:focus-within {
+  opacity: 1;
+}
+.icon-btn.danger:hover {
+  color: var(--err);
+}
+.icon-btn:disabled {
+  opacity: 0.35;
+}
+.doc-more {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+}
+.doc-editor {
+  height: 55vh;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.doc-editor .cm-editor {
+  height: 100%;
+}
+.doc-editor .cm-editor.cm-focused {
+  outline: none;
 }

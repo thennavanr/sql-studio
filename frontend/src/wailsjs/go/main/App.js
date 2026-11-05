@@ -70,6 +70,18 @@ export function ListObjects(arg1, arg2) {
   return window['go']['main']['App']['ListObjects'](arg1, arg2);
 }
 
+export function MongoDeleteDocument(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['MongoDeleteDocument'](arg1, arg2, arg3, arg4);
+}
+
+export function MongoInsertDocument(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['MongoInsertDocument'](arg1, arg2, arg3, arg4);
+}
+
+export function MongoReplaceDocument(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['MongoReplaceDocument'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function OpenFile() {
   return window['go']['main']['App']['OpenFile']();
 }
