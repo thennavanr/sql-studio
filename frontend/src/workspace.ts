@@ -265,6 +265,8 @@ export class Workspace {
         this.renderToolbar();
         this.updateStatus();
       }
+    } else {
+      this.renderTabs(); // closing a background tab: just refresh the tab bar
     }
     this.persist();
   }
@@ -293,6 +295,9 @@ export class Workspace {
           {
             class: 'tab-close' + (t.dirty ? ' dirty' : ''),
             title: 'Close (⌘W)',
+            draggable: 'false',
+            // Keep the tab bar from re-rendering under the pointer before the click lands.
+            onmousedown: (e: Event) => e.stopPropagation(),
             onclick: (e: Event) => {
               e.stopPropagation();
               void this.closeTab(t);
@@ -303,10 +308,11 @@ export class Workspace {
       );
       if (cs?.profile.color) el.style.setProperty('--tab-color', cs.profile.color);
       el.addEventListener('mousedown', (e) => {
+        if ((e.target as HTMLElement).closest('.tab-close')) return;
         if (e.button === 1) {
           e.preventDefault();
           void this.closeTab(t);
-        } else if (e.button === 0) this.activate(t);
+        } else if (e.button === 0 && t !== this.active) this.activate(t);
       });
       el.addEventListener('dragstart', (e) => e.dataTransfer?.setData('text/x-tab', t.id));
       el.addEventListener('dragover', (e) => e.preventDefault());
