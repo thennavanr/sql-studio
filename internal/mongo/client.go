@@ -180,6 +180,11 @@ func clientOptions(c store.Connection) (*options.ClientOptions, error) {
 	}
 	opts := options.Client().ApplyURI(u.build(true)).SetAppName("SQL Studio").
 		SetServerSelectionTimeout(timeout).SetConnectTimeout(timeout)
+	// Azure Cosmos DB does not support retryable writes; its own connection
+	// strings say retrywrites=false, but hand-written ones often do not.
+	if isCosmos(u.hosts) && !strings.Contains(strings.ToLower(u.rest), "retrywrites=") {
+		opts.SetRetryWrites(false)
+	}
 	if err := opts.Validate(); err != nil {
 		return nil, friendlyError(err)
 	}
@@ -264,7 +269,7 @@ func Info(ctx context.Context, cl *mongo.Client, c store.Connection) engine.Serv
 	}
 	host := strings.ToLower(c.Server)
 	switch {
-	case strings.Contains(host, ".cosmos.azure.com") || strings.Contains(host, ".mongocluster.cosmos"):
+	case isCosmos(host):
 		si.Edition = "Azure Cosmos DB for MongoDB"
 		si.IsAzure = true
 	case strings.Contains(host, ".mongodb.net"):
@@ -293,7 +298,7 @@ func Test(ctx context.Context, c store.Connection) (engine.ServerInfo, error) {
 // Databases lists database names. Users without listDatabases permission
 // still see their default database.
 func Databases(ctx context.Context, cl *mongo.Client, c store.Connection) ([]string, error) {
-	names, err := cl.ListDatabaseNames(ctx, bson.D{}, options.ListDatabases().SetAuthorizedDatabases(true))
+	names, err := listDatabaseNames(ctx, cl)
 	if err != nil {
 		if c.Database != "" {
 			return []string{c.Database}, nil
@@ -325,9 +330,51 @@ func contains(list []string, s string) bool {
 	return false
 }
 
+// The authorized* options let users without cluster-wide privileges list what
+// they can access. Some MongoDB-compatible services (e.g. Azure Cosmos DB)
+// reject options they do not implement, so each call retries without them.
+
+func listDatabaseNames(ctx context.Context, cl *mongo.Client) ([]string, error) {
+	names, err := cl.ListDatabaseNames(ctx, bson.D{}, options.ListDatabases().SetAuthorizedDatabases(true))
+	if err != nil && ctx.Err() == nil {
+		names, err = cl.ListDatabaseNames(ctx, bson.D{})
+	}
+	return names, err
+}
+
+func listDatabases(ctx context.Context, cl *mongo.Client) (mongo.ListDatabasesResult, error) {
+	res, err := cl.ListDatabases(ctx, bson.D{}, options.ListDatabases().SetAuthorizedDatabases(true))
+	if err != nil && ctx.Err() == nil {
+		res, err = cl.ListDatabases(ctx, bson.D{})
+	}
+	return res, err
+}
+
+func listCollections(ctx context.Context, db *mongo.Database, nameOnly bool) (*mongo.Cursor, error) {
+	cur, err := db.ListCollections(ctx, bson.D{}, options.ListCollections().SetNameOnly(nameOnly).SetAuthorizedCollections(true))
+	if err != nil && ctx.Err() == nil {
+		cur, err = db.ListCollections(ctx, bson.D{})
+	}
+	return cur, err
+}
+
+func listCollectionNames(ctx context.Context, db *mongo.Database) ([]string, error) {
+	names, err := db.ListCollectionNames(ctx, bson.D{}, options.ListCollections().SetAuthorizedCollections(true))
+	if err != nil && ctx.Err() == nil {
+		names, err = db.ListCollectionNames(ctx, bson.D{})
+	}
+	return names, err
+}
+
+// isCosmos reports whether the host list points at Azure Cosmos DB for MongoDB.
+func isCosmos(hosts string) bool {
+	h := strings.ToLower(hosts)
+	return strings.Contains(h, ".cosmos.azure.com") || strings.Contains(h, ".mongocluster.cosmos") || strings.Contains(h, ".documents.azure.com")
+}
+
 // Collections lists collections and views as explorer objects.
 func Collections(ctx context.Context, cl *mongo.Client, db string) ([]engine.DbObject, error) {
-	cur, err := cl.Database(db).ListCollections(ctx, bson.D{}, options.ListCollections().SetNameOnly(true).SetAuthorizedCollections(true))
+	cur, err := listCollections(ctx, cl.Database(db), true)
 	if err != nil {
 		return nil, friendlyError(err)
 	}
@@ -474,6 +521,10 @@ func friendlyError(err error) error {
 		hint = "Check the user name and password. If the user is defined in another database, add ?authSource=<db> (often admin) to the connection string."
 	case strings.Contains(msg, "no such host") || strings.Contains(msg, "lookup "):
 		hint = "The host name could not be resolved. For mongodb+srv:// connection strings, check the cluster address."
+	case strings.Contains(msg, "reports wire version"):
+		hint = "This server's MongoDB version is older than SQL Studio supports (MongoDB 4.0 or newer). For Azure Cosmos DB, upgrade the account's server version in the Azure portal (Settings → Features → Upgrade MongoDB server version)."
+	case strings.Contains(msg, "Retryable writes are not supported") || strings.Contains(msg, "retryable writes"):
+		hint = "Add retrywrites=false to the connection string."
 	case strings.Contains(msg, "x509") || strings.Contains(msg, "certificate"):
 		hint = "The server certificate could not be verified. For local test servers you can add tlsAllowInvalidCertificates=true to the connection string."
 	}

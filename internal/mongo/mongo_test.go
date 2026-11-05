@@ -297,3 +297,33 @@ db.orders.countDocuments()`)
 	_ = cl.Database(db).Drop(ctx)
 	_ = cl.Database("other_db").Drop(ctx)
 }
+
+func TestCosmosOptions(t *testing.T) {
+	cases := []struct {
+		uri  string
+		want *bool
+	}{
+		{"mongodb://acct:pw@acct.mongo.cosmos.azure.com:10255/?ssl=true&replicaSet=globaldb", ptr(false)},
+		{"mongodb://acct:pw@acct.mongo.cosmos.azure.com:10255/?ssl=true&retrywrites=false", ptr(false)},
+		{"mongodb://u:pw@c.mongocluster.cosmos.azure.com:10260/?tls=true&retrywrites=true", ptr(true)},
+		{"mongodb://localhost:27017", nil},
+	}
+	for _, c := range cases {
+		opts, err := clientOptions(store.Connection{URI: c.uri})
+		if err != nil {
+			t.Fatalf("%s: %v", c.uri, err)
+		}
+		got := opts.RetryWrites
+		if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
+			t.Errorf("%s: RetryWrites = %v, want %v", c.uri, deref(got), deref(c.want))
+		}
+	}
+}
+
+func ptr(b bool) *bool { return &b }
+func deref(b *bool) any {
+	if b == nil {
+		return nil
+	}
+	return *b
+}

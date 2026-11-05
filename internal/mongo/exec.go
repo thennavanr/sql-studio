@@ -188,7 +188,7 @@ func (e *executor) run(ctx context.Context, st Statement) error {
 }
 
 func (e *executor) showDBs(ctx context.Context) error {
-	res, err := e.cl.ListDatabases(ctx, bson.D{}, options.ListDatabases().SetAuthorizedDatabases(true))
+	res, err := listDatabases(ctx, e.cl)
 	if err != nil {
 		return err
 	}
@@ -202,7 +202,7 @@ func (e *executor) showDBs(ctx context.Context) error {
 }
 
 func (e *executor) collectionNames(ctx context.Context) error {
-	names, err := e.cl.Database(e.db).ListCollectionNames(ctx, bson.D{}, options.ListCollections().SetAuthorizedCollections(true))
+	names, err := listCollectionNames(ctx, e.cl.Database(e.db))
 	if err != nil {
 		return err
 	}

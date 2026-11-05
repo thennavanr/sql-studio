@@ -69,6 +69,8 @@ Tokens are cached in memory per connection, so one browser sign-in covers every 
 
 ## MongoDB
 
+Works with MongoDB 4.0 and newer, including Atlas and Azure Cosmos DB for MongoDB (server version 4.0+; for Cosmos, `retrywrites=false` is applied automatically).
+
 Choose **MongoDB** at the top of the New Connection dialog and paste a connection string, e.g. `mongodb+srv://user@cluster0.example.mongodb.net/` (Atlas → Connect → Drivers) or `mongodb://localhost:27017`. A password inside the connection string is moved to the Keychain and removed from the saved string. If the user is defined in another database, add `?authSource=admin`.
 
 The explorer lists databases → collections and views. Double-click a collection to open its documents; right-click for Count, Aggregate, Insert Document and Indexes.
