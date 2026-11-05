@@ -103,7 +103,9 @@ jobs:
           name: SQL Studio v${{ env.VERSION }}
           generate_release_notes: true
           body: |
-            Lightweight SQL Server / Azure SQL client for macOS (universal: Apple Silicon + Intel).
+            Lightweight SQL Server / Azure SQL and MongoDB client for macOS (universal: Apple Silicon + Intel).
+
+            **Homebrew:** `brew tap thennavanr/sql-studio https://github.com/thennavanr/sql-studio && brew install --cask --appdir ~/Applications thennavanr/sql-studio/sql-studio` (upgrade with `brew upgrade --cask sql-studio`).
 
             **Install:** download `SQL-Studio-macOS-universal.dmg`, drag **SQL Studio** to Applications.
             The app is ad-hoc signed but not notarized — on first launch right-click → **Open**, or run:
