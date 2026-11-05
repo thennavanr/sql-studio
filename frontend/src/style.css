@@ -1337,3 +1337,49 @@ dialog.modal form {
 .doc-editor .cm-editor.cm-focused {
   outline: none;
 }
+
+/* collapsible document tree */
+.doc-pre .dl {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.doc-pre .tw,
+.doc-pre .tw-gap {
+  display: inline-block;
+  width: 14px;
+  margin-left: -14px;
+}
+.doc-pre .tw {
+  cursor: pointer;
+  color: var(--text-3);
+  text-align: center;
+}
+.doc-pre .tw::before {
+  content: '▾';
+  font-size: 12px;
+}
+.doc-pre .tw:hover {
+  color: var(--text);
+}
+.doc-pre .blk.collapsed > .head .tw::before {
+  content: '▸';
+}
+.doc-pre .blk > .head > .sum,
+.doc-pre .blk.collapsed > .kids,
+.doc-pre .blk.collapsed > .close {
+  display: none;
+}
+.doc-pre .blk.collapsed > .head > .sum {
+  display: inline;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.doc-pre .blk.collapsed > .head > .sum:hover {
+  color: var(--text);
+}
+.doc-pre .sum .p {
+  color: var(--text);
+}
+.doc-pre {
+  padding-left: 22px;
+}

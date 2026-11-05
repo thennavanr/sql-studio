@@ -45,6 +45,97 @@ export function highlight(text: string): string {
   return out + esc(text.slice(last));
 }
 
+// ---------- collapsible tree rendering ----------
+
+/** Nested blocks longer than this many lines start collapsed. */
+const AUTO_COLLAPSE_LINES = 20;
+
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+/** True when a printed line opens a multi-line object or array. */
+function opensBlock(rest: string): boolean {
+  return rest.endsWith('{') || rest.endsWith('[');
+}
+
+function lineEl(indent: string, toggle: HTMLElement | null, rest: string, cls = 'dl'): HTMLElement {
+  const el = h('div', { class: cls });
+  el.append(indent, toggle ?? h('span', { class: 'tw-gap' }));
+  const body = h('span', {});
+  body.innerHTML = highlight(rest);
+  el.append(body);
+  return el;
+}
+
+/**
+ * Renders mongosh-style pretty text as a collapsible tree. The printer puts
+ * every multi-line object/array opener at a line end and its closer on its own
+ * line at the same indentation, and never emits raw newlines inside strings,
+ * so blocks can be recovered from the lines alone.
+ */
+export function renderTree(target: HTMLElement, text: string, collapseAll?: boolean) {
+  const lines = text.split('\n');
+  const build = (from: number, to: number, depth: number): DocumentFragment => {
+    const frag = document.createDocumentFragment();
+    for (let i = from; i < to; i++) {
+      const line = lines[i];
+      const ind = indentOf(line);
+      const rest = line.slice(ind);
+      if (!opensBlock(rest)) {
+        frag.append(lineEl(line.slice(0, ind), null, rest));
+        continue;
+      }
+      // find the matching closer at the same indentation
+      let j = i + 1;
+      while (j < to && !(indentOf(lines[j]) === ind && /^[}\]]/.test(lines[j].slice(ind)))) j++;
+      if (j >= to) {
+        frag.append(lineEl(line.slice(0, ind), null, rest));
+        continue;
+      }
+      const isArr = rest.endsWith('[');
+      const closeRest = lines[j].slice(ind);
+      // count direct children (lines one level deeper that start an entry)
+      let n = 0;
+      for (let k = i + 1; k < j; k++) {
+        if (indentOf(lines[k]) === ind + 2 && !/^[}\]]/.test(lines[k].slice(ind + 2))) n++;
+      }
+      const label = isArr ? `${n} item${n === 1 ? '' : 's'}` : `${n} field${n === 1 ? '' : 's'}`;
+      const tw = h('span', { class: 'tw', title: 'Collapse / expand (⌥-click: all inside)' });
+      const head = lineEl(line.slice(0, ind), tw, rest, 'dl head');
+      const sum = h('span', { class: 'sum' });
+      const first = i + 1 < j ? lines[i + 1].slice(ind + 2) : '';
+      if (depth === 0 && first && !opensBlock(first) && n > 0) {
+        // top-level document: preview its first field (usually _id)
+        const preview = h('span', {});
+        preview.innerHTML = ' ' + highlight(first.replace(/,$/, ''));
+        sum.append(preview, n > 1 ? ` … ${n - 1} more ` : ' ', h('span', { class: 'p' }, closeRest));
+      } else {
+        sum.append(` … ${label} `, h('span', { class: 'p' }, closeRest));
+      }
+      head.append(sum);
+      const blk = h('div', { class: 'blk' }, head, h('div', { class: 'kids' }, build(i + 1, j, depth + 1)), lineEl(line.slice(0, ind), null, closeRest, 'dl close'));
+      const span = j - i;
+      if (collapseAll === true || (collapseAll === undefined && depth > 0 && span > AUTO_COLLAPSE_LINES)) blk.classList.add('collapsed');
+      tw.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const collapse = !blk.classList.contains('collapsed');
+        blk.classList.toggle('collapsed', collapse);
+        if ((e as MouseEvent).altKey) blk.querySelectorAll('.blk').forEach((b) => b.classList.toggle('collapsed', collapse));
+      });
+      // clicking the summary of a collapsed block expands it
+      sum.addEventListener('click', (e) => {
+        e.stopPropagation();
+        blk.classList.remove('collapsed');
+      });
+      frag.append(blk);
+      i = j;
+    }
+    return frag;
+  };
+  target.replaceChildren(build(0, lines.length, 0));
+}
+
 /**
  * Opens a document editor. onSave receives the text and returns an error
  * message to keep the dialog open, or null when saved.
@@ -110,6 +201,7 @@ export async function insertDocumentDialog(connId: string, db: string, coll: str
 export class DocsView {
   readonly el: HTMLElement;
   private shown = 0;
+  private collapseMode: boolean | undefined; // undefined = automatic
   private list: HTMLElement;
   private more: HTMLButtonElement;
 
@@ -122,6 +214,12 @@ export class DocsView {
     this.more = h('button', { class: 'btn small', onclick: () => this.renderMore() }, 'Show more');
     this.el = h('div', { class: 'docs-view' }, this.list, h('div', { class: 'doc-more' }, this.more));
     this.renderMore();
+  }
+
+  /** Expands or collapses every node in every document. */
+  setAll(expanded: boolean) {
+    this.collapseMode = !expanded;
+    this.list.querySelectorAll('.blk').forEach((b) => b.classList.toggle('collapsed', !expanded));
   }
 
   private renderMore() {
@@ -138,7 +236,7 @@ export class DocsView {
 
   private card(i: number): HTMLElement {
     const pre = h('pre', { class: 'doc-pre' });
-    pre.innerHTML = highlight(this.info.docs[i]);
+    renderTree(pre, this.info.docs[i], this.collapseMode);
     const copy = () => void App.CopyText(this.info.docs[i]);
     const actions = h(
       'div',
@@ -152,7 +250,8 @@ export class DocsView {
         h('button', { class: 'icon-btn danger', title: 'Delete document', onclick: () => void this.remove(i, card) }, icon('trash', 13)),
       );
     }
-    card.addEventListener('dblclick', () => {
+    card.addEventListener('dblclick', (e) => {
+      if ((e.target as HTMLElement).closest('.tw, .sum')) return;
       if (this.info.editable && !card.classList.contains('deleted')) void this.edit(i, card, pre);
     });
     return card;
@@ -165,7 +264,7 @@ export class DocsView {
       try {
         const stored = await App.MongoReplaceDocument(this.connId, database, collection, id, text);
         this.info.docs[i] = stored;
-        pre.innerHTML = highlight(stored);
+        renderTree(pre, stored, this.collapseMode);
         card.classList.add('changed');
         this.onChange(`Updated document ${id} in ${collection}. Re-run the query to refresh the Table view.`);
         return null;

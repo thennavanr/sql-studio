@@ -96,7 +96,7 @@ show collections
 |---|---|
 | **Commands** | `find` (with `sort`, `limit`, `skip`, `projection`, `count`, `explain`), `findOne`, `aggregate`, `countDocuments`, `estimatedDocumentCount`, `distinct`, `insertOne`/`insertMany`, `updateOne`/`updateMany`, `replaceOne`, `deleteOne`/`deleteMany`, `getIndexes`, `createIndex`, `dropIndex`, `stats`, `drop`; `db.runCommand`, `db.adminCommand`, `db.stats`, `db.getCollectionNames`, `use`, `show dbs`, `show collections` |
 | **Values** | `ObjectId()`, `ISODate()`/`new Date()`, `Long()`/`NumberLong()`, `NumberInt()`, `Decimal128()`, `UUID()`, `BinData()`, `Timestamp()`, `/regex/i`, comments, unquoted keys, trailing commas |
-| **Results** | **Documents** view (syntax-highlighted, Edit / Copy / Delete per document) and **Table** view (top-level fields as columns, copy and CSV export). JSON export writes Extended JSON |
+| **Results** | **Documents** view (syntax-highlighted, collapsible objects and arrays — ⌥-click collapses a node and everything inside, Expand all / Collapse all — and Edit / Copy / Delete per document) and **Table** view (top-level fields as columns, copy and CSV export). JSON export writes Extended JSON |
 | **Editing** | Edit opens the document in an editor; saving replaces it by `_id` and keeps every BSON type intact (int vs. Long vs. Double, dates, decimals). Results from a projection or an aggregation are read-only, so a partial document can never overwrite a full one |
 | **Safety** | `find()` without `.limit()` shows the first 1,000 documents (page with `.skip()`); a script stops at the first error so later writes don't run |
 | **Autocomplete** | Collection names after `db.`, methods, `$` operators, and field names sampled from the collection |

@@ -757,6 +757,14 @@ export class Workspace {
             h('button', { class: 'seg' + (rs!.view === 'table' ? ' on' : ''), onclick: () => setView('table') }, 'Table'),
           )
         : null,
+      docs && rs!.view === 'docs'
+        ? h(
+            'div',
+            { class: 'segmented small' },
+            h('button', { class: 'seg', title: 'Expand every node', onclick: () => rs!.docsView?.setAll(true) }, 'Expand all'),
+            h('button', { class: 'seg', title: 'Collapse every document to one line', onclick: () => rs!.docsView?.setAll(false) }, 'Collapse all'),
+          )
+        : null,
       docs?.collection && docs.editable
         ? h(
             'button',
