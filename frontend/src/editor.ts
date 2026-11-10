@@ -1,7 +1,7 @@
 import { basicSetup } from 'codemirror';
 import { EditorView, keymap } from '@codemirror/view';
 import { Compartment, EditorState, Prec } from '@codemirror/state';
-import { indentWithTab } from '@codemirror/commands';
+import { indentWithTab, lineComment, lineUncomment, toggleComment } from '@codemirror/commands';
 import { sql, MSSQL } from '@codemirror/lang-sql';
 import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
@@ -217,4 +217,97 @@ export function gotoLine(view: EditorView, line: number) {
   const l = view.state.doc.line(n);
   view.dispatch({ selection: { anchor: l.from, head: l.to }, scrollIntoView: true });
   view.focus();
+}
+
+// ---------- comments ----------
+
+/** Comment the selected lines (-- for SQL, // for MongoDB). */
+export function commentLines(view: EditorView) {
+  lineComment(view);
+  view.focus();
+}
+
+/** Uncomment the selected lines. */
+export function uncommentLines(view: EditorView) {
+  lineUncomment(view);
+  view.focus();
+}
+
+/** Toggle comments on the selected lines (⌘/). */
+export function toggleCommentLines(view: EditorView) {
+  toggleComment(view);
+  view.focus();
+}
+
+// ---------- MongoDB formatting ----------
+
+/** Error raised when mongosh text cannot be formatted; line is 1-based in the editor. */
+export class FormatError extends Error {
+  constructor(
+    message: string,
+    public line: number,
+  ) {
+    super(message);
+  }
+}
+
+const shellCommand = /^\s*(use|show)\s+\S.*$/;
+
+/**
+ * Format mongosh statements with Prettier (loaded on first use). Lines such as
+ * `use db` and `show collections` are not JavaScript; they are kept as written
+ * and the code between them is formatted separately.
+ */
+export async function formatMongo(view: EditorView) {
+  const [prettier, babel, estree] = await Promise.all([
+    import('prettier/standalone'),
+    import('prettier/plugins/babel'),
+    import('prettier/plugins/estree'),
+  ]);
+  const sel = view.state.selection.main;
+  const from = sel.empty ? 0 : view.state.doc.lineAt(sel.from).from;
+  const to = sel.empty ? view.state.doc.length : view.state.doc.lineAt(sel.to).to;
+  const firstLine = view.state.doc.lineAt(from).number;
+  const lines = view.state.sliceDoc(from, to).split('\n');
+
+  const out: string[] = [];
+  let chunk: string[] = [];
+  let chunkStart = 0;
+  const flush = async () => {
+    const code = chunk.join('\n');
+    chunk = [];
+    if (!code.trim()) {
+      if (code) out.push(code);
+      return;
+    }
+    try {
+      const formatted = await prettier.format(code, {
+        parser: 'babel',
+        plugins: [babel.default ?? babel, estree.default ?? estree],
+        printWidth: 100,
+        semi: false,
+        quoteProps: 'as-needed',
+        trailingComma: 'none',
+      });
+      out.push(formatted.replace(/\n+$/, ''));
+    } catch (e: any) {
+      const line = (e?.loc?.start?.line ?? 1) + firstLine - 1 + chunkStart;
+      const msg = String(e?.message ?? e).split('\n')[0].replace(/\s*\(\d+:\d+\)$/, '');
+      throw new FormatError(`Line ${line}: ${msg}`, line);
+    }
+  };
+  for (let i = 0; i < lines.length; i++) {
+    if (shellCommand.test(lines[i])) {
+      await flush();
+      out.push(lines[i].trim());
+      chunkStart = i + 1;
+    } else {
+      if (!chunk.length) chunkStart = i;
+      chunk.push(lines[i]);
+    }
+  }
+  await flush();
+  let text = out.join('\n');
+  if (sel.empty && !text.endsWith('\n')) text += '\n';
+  view.dispatch({ changes: { from, to, insert: text } });
 }

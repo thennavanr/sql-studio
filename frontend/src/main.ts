@@ -36,9 +36,7 @@ async function boot() {
     { class: 'titlebar' },
     h('div', { class: 'traffic-space' }),
     iconBtn('sidebar', 'Toggle sidebar (⌘B)', () => toggleSidebar()),
-    ws.toolbar,
     h('div', { class: 'title-spacer' }),
-    iconBtn('format', 'Format SQL (⌥⇧F)', () => void ws.format()),
     iconBtn('history', 'Query history (⌘Y)', () => openHistory()),
     iconBtn('settings', 'Settings (⌘,)', () => void settingsDialog()),
   );
@@ -117,6 +115,10 @@ async function boot() {
     executeCurrent: () => void ws.execute('current'),
     cancel: () => ws.cancel(),
     format: () => void ws.format(),
+    validate: () => void ws.validate(),
+    toggleComment: () => ws.comment('toggle'),
+    comment: () => ws.comment('add'),
+    uncomment: () => ws.comment('remove'),
     toggleResults: () => ws.toggleResults(),
     toggleSidebar,
     history: openHistory,
@@ -143,6 +145,9 @@ async function boot() {
     if (e.key === 'F5') {
       e.preventDefault();
       commands.execute();
+    } else if (mod && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+      e.preventDefault();
+      commands.validate();
     } else if (mod && e.key === '.') {
       e.preventDefault();
       commands.cancel();

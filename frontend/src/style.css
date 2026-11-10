@@ -423,7 +423,7 @@ body.resizing-v * {
 /* ---------- workspace ---------- */
 .workspace {
   display: grid;
-  grid-template-rows: 34px 1fr;
+  grid-template-rows: 34px auto 1fr;
   min-width: 0;
   min-height: 0;
 }
@@ -1382,4 +1382,43 @@ dialog.modal form {
 }
 .doc-pre {
   padding-left: 22px;
+}
+
+/* query toolbar (above the editor) */
+.querybar {
+  height: 38px;
+  padding: 0 10px;
+  gap: 6px;
+  background: var(--bg-side);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.querybar .tb-select {
+  width: 200px;
+}
+.querybar .tb-select.db {
+  width: 160px;
+}
+.btn.tool {
+  color: var(--text-2);
+  padding: 0 9px;
+}
+.btn.tool:hover:not(:disabled) {
+  color: var(--text);
+}
+@media (max-width: 1250px) {
+  .querybar .tool-label {
+    display: none;
+  }
+  .btn.tool {
+    padding: 0 7px;
+  }
+}
+@media (max-width: 1000px) {
+  .querybar .tb-select {
+    width: 140px;
+  }
+  .querybar .tb-select.db {
+    width: 120px;
+  }
 }

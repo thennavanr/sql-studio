@@ -91,8 +91,12 @@ func buildMenu(app *App) *menu.Menu {
 	query.AddText("Execute", keys.CmdOrCtrl("e"), emit("execute"))
 	query.AddText("Execute Current Statement", keys.Combo("e", keys.CmdOrCtrlKey, keys.ShiftKey), emit("executeCurrent"))
 	query.AddText("Cancel Query", keys.CmdOrCtrl("."), emit("cancel"))
+	query.AddText("Validate Query", keys.Combo("p", keys.CmdOrCtrlKey, keys.ShiftKey), emit("validate"))
 	query.AddSeparator()
-	query.AddText("Format SQL", keys.Combo("f", keys.OptionOrAltKey, keys.ShiftKey), emit("format"))
+	query.AddText("Format Query", keys.Combo("f", keys.OptionOrAltKey, keys.ShiftKey), emit("format"))
+	query.AddText("Toggle Comment", keys.CmdOrCtrl("/"), emit("toggleComment"))
+	query.AddText("Comment Lines", nil, emit("comment"))
+	query.AddText("Uncomment Lines", nil, emit("uncomment"))
 	query.AddText("Toggle Results Pane", keys.CmdOrCtrl("r"), emit("toggleResults"))
 
 	view := m.AddSubmenu("View")

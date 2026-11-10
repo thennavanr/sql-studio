@@ -2,7 +2,7 @@ import type { EditorView } from '@codemirror/view';
 import * as App from './wailsjs/go/main/App';
 import { EventsOn } from './wailsjs/runtime/runtime';
 import { DataGrid, type Cell, type GridColumn } from './grid';
-import { createEditor, formatSQL, gotoLine, setCompletionSchema, setEditorFont, setEditorTheme, setMongoMode, setSQLMode } from './editor';
+import { commentLines, createEditor, FormatError, formatMongo, formatSQL, toggleCommentLines, uncommentLines, gotoLine, setCompletionSchema, setEditorFont, setEditorTheme, setMongoMode, setSQLMode } from './editor';
 import { DocsView, insertDocumentDialog, type DocsInfo } from './docs';
 import { cellViewer, confirmDialog, connectionDialog, contextMenu, infoDialog, promptText, showErrorDialog } from './dialogs';
 import { emit, ensureConnected, on, state } from './state';
@@ -102,9 +102,11 @@ export class Workspace {
     this.dbSelect = h('select', { class: 'input tb-select db', title: 'Database' });
     this.runBtn = h('button', { class: 'btn run', title: 'Execute (⌘E / ⌘↵ / F5)', onclick: () => this.execute('auto') }, icon('play'), 'Run');
     this.cancelBtn = h('button', { class: 'btn', title: 'Cancel (⌘.)', disabled: true, onclick: () => this.cancel() }, icon('stop'), 'Cancel');
+    const tool = (name: string, label: string, title: string, fn: () => void) =>
+      h('button', { class: 'btn tool', title, onclick: fn }, icon(name, 13), h('span', { class: 'tool-label' }, label));
     this.toolbar = h(
       'div',
-      { class: 'toolbar' },
+      { class: 'toolbar querybar' },
       this.runBtn,
       this.cancelBtn,
       h('span', { class: 'tb-sep' }),
@@ -112,6 +114,11 @@ export class Workspace {
       this.connSelect,
       h('span', { class: 'node-icon' }, icon('database')),
       this.dbSelect,
+      h('span', { class: 'tb-sep' }),
+      tool('check', 'Validate', 'Check the query without running it (⇧⌘P)', () => void this.validate()),
+      tool('format', 'Format', 'Format the selection or the whole query (⌥⇧F)', () => void this.format()),
+      tool('comment', 'Comment', 'Comment the selected lines', () => this.comment('add')),
+      tool('uncomment', 'Uncomment', 'Uncomment the selected lines', () => this.comment('remove')),
     );
     this.connSelect.addEventListener('change', () => this.onConnChange());
     this.dbSelect.addEventListener('change', () => {
@@ -129,7 +136,7 @@ export class Workspace {
     this.panes = h('div', { class: 'panes' });
     this.welcome = this.buildWelcome();
     this.panes.appendChild(this.welcome);
-    this.el = h('div', { class: 'workspace' }, this.tabBar, this.panes);
+    this.el = h('div', { class: 'workspace' }, this.tabBar, this.toolbar, this.panes);
 
     this.statusLeft = h('div', { class: 'status-left' });
     this.statusRight = h('div', { class: 'status-right' });
@@ -369,6 +376,7 @@ export class Workspace {
     opts.push(h('option', { value: '__new' }, 'New connection…'));
     this.connSelect.replaceChildren(...opts);
     this.connSelect.disabled = !t;
+    this.toolbar.hidden = !t;
 
     const cs = t ? state.conns.get(t.connId) : undefined;
     const dbs = new Set(cs?.databases ?? []);
@@ -920,15 +928,62 @@ export class Workspace {
   async format() {
     const t = this.active;
     if (!t) return;
-    if (this.isMongoTab(t)) {
-      await infoDialog('Format', 'Formatting is available for SQL query tabs.');
+    try {
+      if (this.isMongoTab(t)) await formatMongo(t.view);
+      else await formatSQL(t.view);
+      t.view.focus();
+    } catch (e) {
+      if (e instanceof FormatError) gotoLine(t.view, e.line);
+      showErrorDialog('Could not format the query', errText(e));
+    }
+  }
+
+  /** Comment / uncomment / toggle comments on the selected lines. */
+  comment(mode: 'add' | 'remove' | 'toggle') {
+    const t = this.active;
+    if (!t) return;
+    if (mode === 'add') commentLines(t.view);
+    else if (mode === 'remove') uncommentLines(t.view);
+    else toggleCommentLines(t.view);
+  }
+
+  /** Checks the selection (or the whole query) without running it. */
+  async validate() {
+    const t = this.active;
+    if (!t || t.running) return;
+    const doc = t.view.state.doc;
+    const sel = t.view.state.selection.main;
+    const from = sel.empty ? 0 : sel.from;
+    const text = doc.sliceString(from, sel.empty ? doc.length : sel.to);
+    if (!text.trim()) return;
+    if (!t.connId) {
+      const c = this.firstConnected();
+      if (c) this.setConnection(t, c);
+      else {
+        void infoDialog('No connection', 'Choose a connection for this query tab in the toolbar first.');
+        return;
+      }
+    }
+    const offset = doc.lineAt(from).number - 1;
+    t.messages = [{ kind: 'info', text: 'Validating…', time: Date.now() }];
+    t.pane = 'messages';
+    t.resultsVisible = true;
+    this.renderResults(t);
+    this.layout(t);
+    if (!(await ensureConnected(t.connId))) {
+      t.messages = [{ kind: 'error', text: 'Not connected.', time: Date.now() }];
+      this.renderResults(t);
       return;
     }
     try {
-      await formatSQL(t.view);
+      const msgs = await App.Validate(t.connId, t.database, text);
+      t.messages = msgs.map((m) => ({ kind: m.kind, text: m.text, line: m.line ? m.line + offset : undefined, time: m.time }));
     } catch (e) {
-      showErrorDialog('Could not format SQL', errText(e));
+      t.messages = [{ kind: 'error', text: errText(e), time: Date.now() }];
     }
+    if (t === this.active) this.renderResults(t);
+    const firstErr = t.messages.find((m) => m.kind === 'error' && m.line);
+    if (firstErr?.line) gotoLine(t.view, firstErr.line);
   }
 
   async openFile() {

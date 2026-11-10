@@ -12,7 +12,8 @@ A lightweight, native-feeling **SQL Server / Azure SQL** and **MongoDB** client 
 
 | | |
 |---|---|
-| **Query editor** | T-SQL syntax highlighting, autocomplete for keywords, tables and columns, multiple tabs, find/replace, multi-cursor, formatter (⌥⇧F), open/save `.sql` files, tabs restored on relaunch |
+| **Query editor** | Toolbar above the editor with Run, Cancel, connection, database, **Validate**, **Format**, **Comment** and **Uncomment**. T-SQL syntax highlighting, autocomplete for keywords, tables and columns, multiple tabs, find/replace, multi-cursor, open/save `.sql` files, tabs restored on relaunch |
+| **Validate** | Checks the selection or the whole query **without running it** (⇧⌘P). SQL Server: compiles with `SET NOEXEC ON` (syntax, invalid columns) and builds estimated plans (missing tables, views, procedures), on a throwaway connection; temp tables and objects created earlier in the script are understood. MongoDB: syntax, supported methods and modifiers, and collections that do not exist. Errors are clickable and jump to the line |
 | **Execution** | Runs selection, current statement (⇧⌘E) or whole script; `GO` / `GO n` batch separators; cancel (⌘.); optional timeout. Each tab keeps its own connection, so `#temp` tables, `SET` options and transactions persist like in SSMS/ADS |
 | **Results** | Virtualized grid (100k+ rows), multiple result sets, sort, resize, rectangular selection with sum/avg, copy as TSV/CSV/JSON/Markdown/INSERT, export CSV/JSON, cell viewer with JSON/XML pretty-print |
 | **Messages** | `PRINT` output, rows affected, SSMS-style errors (`Msg 208, Level 16, State 1, Line 3`) — click to jump to the line |
@@ -111,7 +112,9 @@ show collections
 | ⌘N / ⌘W | New / close query tab |
 | ⇧⌘] / ⇧⌘[ | Next / previous tab |
 | ⌘O / ⌘S / ⇧⌘S | Open / save / save as |
-| ⌥⇧F | Format SQL |
+| ⇧⌘P | Validate (check without running) |
+| ⌥⇧F | Format SQL or MongoDB query |
+| ⌘/ | Toggle comment on the selected lines |
 | ⌘R | Toggle results pane |
 | ⌘B | Toggle sidebar |
 | ⌘Y | Query history |

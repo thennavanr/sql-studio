@@ -171,6 +171,9 @@ func toRaw(v any) (bson.RawValue, error) {
 // ---- dispatch ----
 
 func (e *executor) run(ctx context.Context, st Statement) error {
+	if err := checkStatement(st); err != nil {
+		return err
+	}
 	switch st.Kind {
 	case "use":
 		e.db = st.Arg

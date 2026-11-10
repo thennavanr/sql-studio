@@ -38,6 +38,26 @@ export namespace engine {
 	        this.kind = source["kind"];
 	    }
 	}
+	export class Message {
+	    kind: string;
+	    text: string;
+	    line?: number;
+	    number?: number;
+	    time: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Message(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.text = source["text"];
+	        this.line = source["line"];
+	        this.number = source["number"];
+	        this.time = source["time"];
+	    }
+	}
 	export class ScriptDataOptions {
 	    top: number;
 	    where: string;

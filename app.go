@@ -260,6 +260,28 @@ func (a *App) CopyText(text string) error {
 	return runtime.ClipboardSetText(a.ctx, text)
 }
 
+// Validate checks a script without executing it and returns messages for the
+// Messages pane (errors carry editor line numbers).
+func (a *App) Validate(connID, database, script string) ([]engine.Message, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
+	defer cancel()
+	if a.isMongo(connID) {
+		m, err := a.mongoClient(connID)
+		if err != nil {
+			return nil, err
+		}
+		if database == "" {
+			database = m.prof.Database
+		}
+		return mongo.Validate(ctx, m.cl, database, script), nil
+	}
+	db, err := a.mgr.Pool(ctx, connID, database)
+	if err != nil {
+		return nil, err
+	}
+	return engine.Validate(ctx, db, script)
+}
+
 // ---- Query execution ----
 
 // eventSink streams execution output to the UI. Every event carries a

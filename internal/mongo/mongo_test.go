@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -326,4 +327,67 @@ func deref(b *bool) any {
 		return nil
 	}
 	return *b
+}
+
+func TestIntegrationValidate(t *testing.T) {
+	c := testProfile(t)
+	ctx := context.Background()
+	m := NewManager()
+	defer m.Close()
+	cl, err := m.Connect(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const db = "sqlstudio_validate"
+	_ = cl.Database(db).Drop(ctx)
+	if _, err := cl.Database(db).Collection("orders").InsertOne(ctx, bson.D{{Key: "a", Value: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Database(db).Drop(ctx)
+	text := func(ms []engine.Message) string {
+		var b strings.Builder
+		for _, m := range ms {
+			fmt.Fprintf(&b, "%s(L%d): %s\n", m.Kind, m.Line, m.Text)
+		}
+		return b.String()
+	}
+	hasErr := func(ms []engine.Message) bool {
+		for _, m := range ms {
+			if m.Kind == "error" {
+				return true
+			}
+		}
+		return false
+	}
+	cases := []struct {
+		script  string
+		wantErr bool
+		want    string
+	}{
+		{"db.orders.find({ a: 1 }).sort({ a: -1 }).limit(5)\ndb.orders.countDocuments()", false, "2 statements checked"},
+		{"db.orders.find({ a: })", true, "error(L1): Syntax error"},
+		{"db.orders.count()\n\ndb.orders.frobnicate()", true, "error(L3): Line 3: frobnicate() is not supported"},
+		{"db.orders.countDocuments().limit(2)", true, "countDocuments() cannot be followed by .limit()"},
+		{"db.nosuch.find()", false, "collection 'nosuch' does not exist in database 'sqlstudio_validate'"},
+		{"db.newcoll.insertOne({ x: 1 })", false, "Script is valid"},
+		{"use other_db_v\ndb.orders.find()", false, "does not exist in database 'other_db_v'"},
+		{"db.dropDatabase()", true, "db.dropDatabase() is not supported"},
+	}
+	for _, tc := range cases {
+		ms := Validate(ctx, cl, db, tc.script)
+		got := text(ms)
+		if hasErr(ms) != tc.wantErr || !strings.Contains(got, tc.want) {
+			t.Errorf("Validate(%q):\n%s", tc.script, got)
+		}
+	}
+	// Nothing executed.
+	if n, _ := cl.Database(db).Collection("newcoll").CountDocuments(ctx, bson.D{}); n != 0 {
+		t.Error("validation inserted a document")
+	}
+	// Execution rejects the same thing Validate rejects.
+	s := newSink()
+	sum := Execute(ctx, cl, db, "db.orders.countDocuments().limit(2)", engine.ExecOptions{}, s)
+	if sum.Errors != 1 || !strings.Contains(s.text(), "cannot be followed by .limit()") {
+		t.Errorf("execute should reject the same modifier: %s", s.text())
+	}
 }

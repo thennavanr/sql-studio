@@ -117,3 +117,7 @@ export function ScriptObject(arg1, arg2, arg3, arg4, arg5) {
 export function TestConnection(arg1) {
   return window['go']['main']['App']['TestConnection'](arg1);
 }
+
+export function Validate(arg1, arg2, arg3) {
+  return window['go']['main']['App']['Validate'](arg1, arg2, arg3);
+}
