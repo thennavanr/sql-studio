@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types --no-warnings tests/sqlcomplete.test.mts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",

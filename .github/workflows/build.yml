@@ -60,6 +60,11 @@ jobs:
           SQLSTUDIO_TEST_PASSWORD: 'Str0ng!Passw0rd'
           SQLSTUDIO_TEST_MONGO_URI: 'mongodb://admin:Str0ng%21Pass@localhost:27017/?authSource=admin'
         run: go test -race ./internal/...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Frontend unit tests
+        run: cd frontend && npm test
       - name: Test MongoDB 4.2 compatibility
         env:
           SQLSTUDIO_TEST_MONGO_URI: 'mongodb://admin:Str0ng%21Pass@localhost:27042/?authSource=admin'

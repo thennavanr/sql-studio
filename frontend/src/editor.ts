@@ -1,11 +1,12 @@
 import { basicSetup } from 'codemirror';
 import { EditorView, keymap } from '@codemirror/view';
-import { Compartment, EditorState, Prec } from '@codemirror/state';
+import { Compartment, EditorState, Facet, Prec } from '@codemirror/state';
 import { indentWithTab, lineComment, lineUncomment, toggleComment } from '@codemirror/commands';
 import { sql, MSSQL } from '@codemirror/lang-sql';
 import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { sqlColumnCompletion, type SqlSchema } from './sqlcomplete';
 
 export interface EditorHandlers {
   onExecute: () => void;
@@ -56,7 +57,7 @@ export function createEditor(parent: HTMLElement, doc: string, fontSize: number,
           ]),
         ),
         keymap.of([indentWithTab]),
-        langComp.of(sql({ dialect: MSSQL, upperCaseKeywords: true })),
+        langComp.of(sqlLang()),
         themeComp.of(isDark() ? oneDark : lightTheme),
         Prec.high(fontComp.of(fontTheme(fontSize))),
         EditorView.updateListener.of((u) => {
@@ -101,13 +102,27 @@ const OPERATORS = [
 ];
 const HELPERS = ['ObjectId', 'ISODate', 'Long', 'Int32', 'Double', 'Decimal128', 'UUID', 'Timestamp', 'RegExp', 'BinData', 'MinKey', 'MaxKey'];
 
-let mongoSchema: Record<string, string[]> = {};
+// Each editor carries its own schema (facets), so tabs on different
+// databases never see each other's tables or collections.
+const lastValue = (values: readonly Record<string, string[]>[]) => values[values.length - 1] ?? {};
+const sqlSchemaFacet = Facet.define<SqlSchema, SqlSchema>({ combine: lastValue });
+const mongoSchemaFacet = Facet.define<Record<string, string[]>, Record<string, string[]>>({ combine: lastValue });
+
+function sqlLang(schema: SqlSchema = {}, defaultSchema = 'dbo') {
+  const support = sql({ dialect: MSSQL, upperCaseKeywords: true, schema, defaultSchema });
+  return [
+    support,
+    sqlSchemaFacet.of(schema),
+    support.language.data.of({ autocomplete: sqlColumnCompletion((ctx) => ctx.state.facet(sqlSchemaFacet), defaultSchema) }),
+  ];
+}
 
 export function collectionRef(name: string): string {
   return /^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(name) ? `db.${name}` : `db.getCollection(${JSON.stringify(name)})`;
 }
 
 function mongoComplete(ctx: CompletionContext): CompletionResult | null {
+  const mongoSchema = ctx.state.facet(mongoSchemaFacet);
   const line = ctx.state.doc.lineAt(ctx.pos);
   const before = line.text.slice(0, ctx.pos - line.from);
   // db.<collection or db method>
@@ -160,19 +175,18 @@ function mongoComplete(ctx: CompletionContext): CompletionResult | null {
   return { from: word ? word.from : ctx.pos, options, validFor: /^[\w$.]*$/ };
 }
 
-function mongoLang() {
-  return [javascript(), javascriptLanguage.data.of({ autocomplete: mongoComplete })];
+function mongoLang(schema: Record<string, string[]> = {}) {
+  return [javascript(), mongoSchemaFacet.of(schema), javascriptLanguage.data.of({ autocomplete: mongoComplete })];
 }
 
 /** Switch an editor to MongoDB mode; schema maps collection -> field names. */
 export function setMongoMode(view: EditorView, schema?: Record<string, string[]>) {
-  if (schema) mongoSchema = schema;
-  view.dispatch({ effects: langComp.reconfigure(mongoLang()) });
+  view.dispatch({ effects: langComp.reconfigure(mongoLang(schema ?? view.state.facet(mongoSchemaFacet))) });
 }
 
 /** Switch an editor back to T-SQL mode. */
 export function setSQLMode(view: EditorView) {
-  view.dispatch({ effects: langComp.reconfigure(sql({ dialect: MSSQL, upperCaseKeywords: true })) });
+  view.dispatch({ effects: langComp.reconfigure(sqlLang()) });
 }
 
 /** A small editor for a single document (edit / insert dialogs). */
@@ -188,9 +202,7 @@ export function createDocEditor(parent: HTMLElement, doc: string, fontSize: numb
 
 /** Feed table/column names to autocompletion. Keys are "schema.table". */
 export function setCompletionSchema(view: EditorView, schema: Record<string, string[]>, defaultSchema = 'dbo') {
-  view.dispatch({
-    effects: langComp.reconfigure(sql({ dialect: MSSQL, upperCaseKeywords: true, schema, defaultSchema })),
-  });
+  view.dispatch({ effects: langComp.reconfigure(sqlLang(schema, defaultSchema)) });
 }
 
 export function setEditorTheme(view: EditorView) {
