@@ -17,7 +17,7 @@ A lightweight, native-feeling **SQL Server / Azure SQL** and **MongoDB** client 
 | **Execution** | Runs selection, current statement (⇧⌘E) or whole script; `GO` / `GO n` batch separators; cancel (⌘.); optional timeout. Each tab keeps its own connection, so `#temp` tables, `SET` options and transactions persist like in SSMS/ADS |
 | **Results** | Virtualized grid (100k+ rows), multiple result sets, sort, resize, rectangular selection with sum/avg, copy as TSV/CSV/JSON/Markdown/INSERT, export CSV/JSON, cell viewer with JSON/XML pretty-print |
 | **Messages** | `PRINT` output, rows affected, SSMS-style errors (`Msg 208, Level 16, State 1, Line 3`) — click to jump to the line |
-| **Object explorer** | Databases → tables, views, procedures, functions → columns (types, PK, identity). Filter, Select Top 1000, Count Rows, Script as CREATE/ALTER/EXECUTE, **Script Data as INSERT** (TOP, WHERE filter, ORDER BY, target table, identity values, optional CREATE TABLE) to a new query, the clipboard or a file |
+| **Object explorer** | Databases → tables, views, procedures, functions → columns (types, PK, identity). **Drag** a table, view, procedure or function into the editor to insert `[db].[schema].[name]` (columns insert `[column]`, databases `[db]`, MongoDB collections `db.collection`). Filter, Select Top 1000, Count Rows, Copy Name / Copy Full Name, Script as CREATE/ALTER/EXECUTE, **Script Data as INSERT** (TOP, WHERE filter, ORDER BY, target table, identity values, optional CREATE TABLE) to a new query, the clipboard or a file |
 | **Connections** | Groups, colors (tab accent), paste an ADO.NET connection string from the Azure portal, test before saving, read-only intent |
 | **Other** | Query history (⌘Y), light/dark/system theme, zoom, keyboard-first |
 

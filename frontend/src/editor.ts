@@ -14,6 +14,36 @@ export interface EditorHandlers {
   onChange: () => void;
 }
 
+/** Drag-and-drop type used by the object explorer for object names. */
+export const OBJECT_NAME_MIME = 'application/x-sqlstudio-name';
+
+/**
+ * Inserts an object name dragged from the explorer at the drop position,
+ * adding a space where it would otherwise run into a neighbouring word.
+ */
+const objectNameDrop = EditorView.domEventHandlers({
+  drop(e, view) {
+    const text = e.dataTransfer?.getData(OBJECT_NAME_MIME);
+    if (!text) return false;
+    e.preventDefault();
+    const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head;
+    const doc = view.state.doc;
+    const before = pos > 0 ? doc.sliceString(pos - 1, pos) : '';
+    const after = doc.sliceString(pos, pos + 1);
+    const spaceBefore = /[\w\])'"*]/.test(before);
+    const spaceAfter = /[\w\[('"]/.test(after);
+    const insert = (spaceBefore ? ' ' : '') + text + (spaceAfter ? ' ' : '');
+    view.dispatch({
+      changes: { from: pos, insert },
+      selection: { anchor: pos + insert.length - (spaceAfter ? 1 : 0) },
+      scrollIntoView: true,
+      userEvent: 'input.drop',
+    });
+    view.focus();
+    return true;
+  },
+});
+
 const themeComp = new Compartment();
 const langComp = new Compartment();
 const fontComp = new Compartment();
@@ -57,6 +87,7 @@ export function createEditor(parent: HTMLElement, doc: string, fontSize: number,
           ]),
         ),
         keymap.of([indentWithTab]),
+        objectNameDrop,
         langComp.of(sqlLang()),
         themeComp.of(isDark() ? oneDark : lightTheme),
         Prec.high(fontComp.of(fontTheme(fontSize))),

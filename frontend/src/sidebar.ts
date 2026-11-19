@@ -4,7 +4,7 @@ import { connectionDialog, confirmDialog, contextMenu, scriptDataDialog, showErr
 import { disconnect, ensureConnected, loadConnections, on, state } from './state';
 import { bracket, errText, h } from './util';
 import { icon } from './icons';
-import { collectionRef } from './editor';
+import { collectionRef, OBJECT_NAME_MIME } from './editor';
 
 export interface SidebarActions {
   newQuery: (connId: string, db?: string, text?: string, run?: boolean) => void;
@@ -155,6 +155,8 @@ export class Sidebar {
       onOpen?: () => void;
       menu?: () => MenuItem[];
       badge?: Node;
+      /** Text inserted when the row is dragged into a query editor. */
+      drag?: string;
     },
   ): HTMLElement {
     const twisty = h('span', { class: 'twisty' + (opts.expandable ? '' : ' leaf') }, opts.expandable ? icon(opts.expanded ? 'chevronDown' : 'chevronRight') : '');
@@ -182,6 +184,16 @@ export class Sidebar {
       if (opts.onOpen) opts.onOpen();
       else if (opts.expandable) opts.onToggle?.();
     });
+    if (opts.drag) {
+      el.draggable = true;
+      el.title = `${opts.title ?? opts.label}\nDrag into the editor to insert ${opts.drag}`;
+      el.addEventListener('dragstart', (e) => {
+        if (!e.dataTransfer) return;
+        e.dataTransfer.setData(OBJECT_NAME_MIME, opts.drag!);
+        e.dataTransfer.setData('text/plain', opts.drag!); // also works when dropped into other apps
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+    }
     if (opts.menu) {
       el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -268,6 +280,7 @@ export class Sidebar {
         key: dk,
         label: db,
         iconName: 'database',
+        drag: this.isMongo(connId) ? undefined : bracket(db),
         expandable: true,
         expanded: open,
         onToggle: () => this.toggle(dk, () => this.loadObjects(connId, db)),
@@ -326,6 +339,7 @@ export class Sidebar {
         key: this.key('o', connId, db, o.name),
         label: o.name,
         iconName: isView ? 'view' : 'collection',
+        drag: ref,
         onOpen: () => this.actions.newQuery(connId, db, `${ref}.find({})\n  .limit(100)\n`, true),
         menu: () => {
           const items: MenuItem[] = [
@@ -360,6 +374,7 @@ export class Sidebar {
         key: ok,
         label: `${o.schema}.${o.name}`,
         iconName: o.kind,
+        drag: `${bracket(db)}.${full}`,
         expandable: hasCols,
         expanded: open,
         onToggle: () => this.toggle(ok, () => this.loadColumns(connId, db, o)),
@@ -379,6 +394,7 @@ export class Sidebar {
           if (o.kind !== 'table') items.push({ label: 'Script as ALTER', action: () => this.script(connId, db, o, true) });
           items.push({ separator: true, label: '' });
           items.push({ label: 'Copy Name', action: () => void navigator.clipboard.writeText(full) });
+          items.push({ label: 'Copy Full Name', action: () => void navigator.clipboard.writeText(`${bracket(db)}.${full}`) });
           return items;
         },
       }),
@@ -395,6 +411,7 @@ export class Sidebar {
           iconName: c.pk ? 'key' : 'column',
           detail: `${c.type}${c.nullable ? ', null' : ', not null'}${c.identity ? ', identity' : ''}${c.computed ? ', computed' : ''}`,
           cls: 'col',
+          drag: bracket(c.name),
           menu: () => [{ label: 'Copy Name', action: () => void navigator.clipboard.writeText(bracket(c.name)) }],
         }),
       );
