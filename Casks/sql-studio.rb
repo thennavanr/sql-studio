@@ -1,6 +1,6 @@
 cask "sql-studio" do
-  version "0.2.6"
-  sha256 "6b1975deeaa6b865d637eb7e11c500cfb7cb83ae05fb1410174a71fdec03b266"
+  version "0.2.7"
+  sha256 "d3726a7858d7e1fb650a726f49444520ca6957bc7fd495320085f57ac6d4114e"
 
   url "https://github.com/thennavanr/sql-studio/releases/download/v#{version}/SQL-Studio-macOS-universal.dmg"
   name "SQL Studio"
