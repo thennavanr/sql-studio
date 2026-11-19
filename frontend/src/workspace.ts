@@ -888,6 +888,20 @@ export class Workspace {
 
   // ---------- status ----------
 
+  private flashText = '';
+  private flashTimer = 0;
+
+  /** Shows a short confirmation in the status bar. */
+  flash(text: string) {
+    this.flashText = text;
+    clearTimeout(this.flashTimer);
+    this.flashTimer = window.setTimeout(() => {
+      this.flashText = '';
+      this.updateStatus();
+    }, 5000);
+    this.updateStatus();
+  }
+
   private updateStatus() {
     const t = this.active;
     const cs = t ? state.conns.get(t.connId) : undefined;
@@ -904,6 +918,7 @@ export class Workspace {
     this.statusLeft.replaceChildren(...left);
 
     const right: (Node | string)[] = [];
+    if (this.flashText) right.push(h('span', { class: 'ok', title: this.flashText }, '✓ ' + this.flashText));
     if (this.selInfo && t?.pane === 'results') right.push(h('span', {}, this.selInfo));
     if (t?.running) right.push(h('span', { class: 'running' }, h('span', { class: 'spinner' }), `Executing… ${formatDuration(Date.now() - t.startedAt)}`));
     else if (t?.summary) {
@@ -1015,14 +1030,17 @@ export class Workspace {
     const t = this.active;
     if (!t) return;
     try {
-      const name = t.path ? t.path.split('/').pop()! : t.title.replace(/[^\w.-]+/g, '_') + '.sql';
+      const ext = this.isMongoTab(t) ? '.js' : '.sql';
+      const base = t.title.replace(/\.(sql|js|txt)$/i, '').replace(/[^\w.-]+/g, '_');
+      const name = t.path ? t.path.split('/').pop()! : base + ext;
       const p = await App.SaveFile(t.path, name, t.view.state.doc.toString(), saveAs);
-      if (!p) return;
+      if (!p) return; // dialog cancelled
       t.path = p;
       t.title = p.split('/').pop() || t.title;
       t.dirty = false;
       this.renderTabs();
       this.persist();
+      this.flash(`Saved ${p.replace(/^\/Users\/[^/]+/, '~')}`);
     } catch (e) {
       showErrorDialog('Could not save file', errText(e));
     }

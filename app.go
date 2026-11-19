@@ -396,11 +396,13 @@ type FileResult struct {
 	Content string `json:"content"`
 }
 
-var sqlFilter = []runtime.FileFilter{{DisplayName: "SQL files (*.sql)", Pattern: "*.sql"}, {DisplayName: "All files", Pattern: "*"}}
+// The file dialogs deliberately use no type filters: macOS merges all
+// filter patterns into one list of allowed types, and a catch-all "*"
+// pattern becomes an invalid type that breaks the save panel.
 
 // OpenFile shows an open dialog and returns the file (nil if cancelled).
 func (a *App) OpenFile() (*FileResult, error) {
-	p, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Open SQL File", Filters: sqlFilter})
+	p, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "Open Query File"})
 	if err != nil || p == "" {
 		return nil, err
 	}
@@ -426,14 +428,20 @@ func (a *App) SaveFile(path, suggestedName, content string, saveAs bool) (string
 		if suggestedName == "" {
 			suggestedName = "query.sql"
 		}
+		ext := filepath.Ext(suggestedName)
+		if ext == "" {
+			ext = ".sql"
+		}
 		p, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-			Title: "Save SQL File", DefaultFilename: suggestedName, Filters: sqlFilter,
+			Title:                "Save Query",
+			DefaultFilename:      suggestedName,
+			CanCreateDirectories: true,
 		})
 		if err != nil || p == "" {
 			return "", err
 		}
 		if filepath.Ext(p) == "" {
-			p += ".sql"
+			p += ext
 		}
 		path = p
 	}
