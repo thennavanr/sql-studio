@@ -1422,3 +1422,20 @@ dialog.modal form {
     width: 120px;
   }
 }
+
+/* themed tooltips (replace native title tooltips) */
+.tooltip {
+  position: fixed;
+  z-index: 3000;
+  max-width: 440px;
+  padding: 5px 9px;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  font: 12px/1.45 var(--font);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}

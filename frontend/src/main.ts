@@ -7,8 +7,10 @@ import { Sidebar } from './sidebar';
 import { Workspace } from './workspace';
 import { h } from './util';
 import { icon } from './icons';
+import { installTooltips } from './tooltip';
 
 setPasswordPrompt(promptPasswordFor);
+installTooltips();
 setErrorHandler(showErrorDialog);
 
 async function boot() {

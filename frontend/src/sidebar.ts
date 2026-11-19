@@ -243,7 +243,7 @@ export class Sidebar {
           expandable: true,
           expanded: open,
           cls: 'conn',
-          title: `${p.name}\n${p.server}${cs.info ? `\n${cs.info.edition} ${cs.info.version}\nLogged in as ${cs.info.login}` : ''}`,
+          title: [p.name, p.server !== p.name ? p.server : '', cs.info ? `${cs.info.edition} ${cs.info.version}` : '', cs.info?.login ? `Logged in as ${cs.info.login}` : ''].filter(Boolean).join('\n'),
           badge: dot,
           onToggle: () => {
             if (open) this.toggle(ck);
