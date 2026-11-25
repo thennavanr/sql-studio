@@ -12,7 +12,7 @@ import (
 	"github.com/thennavanr/sql-studio/internal/store"
 )
 
-var errNotForMongo = errors.New("this action is not available for MongoDB connections")
+var errNotSupported = errors.New("this action is only available for SQL Server connections")
 
 func (a *App) isMongo(connID string) bool {
 	c, ok := a.store.Lookup(connID)

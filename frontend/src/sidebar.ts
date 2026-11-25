@@ -1,6 +1,6 @@
 import * as App from './wailsjs/go/main/App';
 import type { engine } from './wailsjs/go/models';
-import { connectionDialog, confirmDialog, contextMenu, scriptDataDialog, showErrorDialog, type MenuItem } from './dialogs';
+import { connectionDialog, confirmDialog, contextMenu, scriptDataDialog, showErrorDialog, type ConnKind, type MenuItem } from './dialogs';
 import { disconnect, ensureConnected, loadConnections, on, state } from './state';
 import { bracket, errText, h } from './util';
 import { icon } from './icons';
@@ -11,7 +11,7 @@ export interface SidebarActions {
   insertDocument: (connId: string, db: string, collection: string) => void;
 }
 
-type Kind = 'table' | 'view' | 'procedure' | 'function' | 'collection';
+type Kind = string;
 const FOLDERS: [Kind, string][] = [
   ['table', 'Tables'],
   ['view', 'Views'],
@@ -22,6 +22,45 @@ const MONGO_FOLDERS: [Kind, string][] = [
   ['collection', 'Collections'],
   ['view', 'Views'],
 ];
+const REDIS_TYPES: [Kind, string][] = [
+  ['string', 'Strings'],
+  ['hash', 'Hashes'],
+  ['list', 'Lists'],
+  ['set', 'Sets'],
+  ['zset', 'Sorted Sets'],
+  ['stream', 'Streams'],
+];
+const REDIS_FOLDERS: [Kind, string][] = [...REDIS_TYPES, ['other', 'Other']];
+const knownRedisTypes = new Set(REDIS_TYPES.map(([k]) => k));
+
+const KIND_TABS: [ConnKind, string][] = [
+  ['sqlserver', 'SQL'],
+  ['mongodb', 'MongoDB'],
+  ['redis', 'Redis'],
+];
+const kindOf = (k: string | undefined): ConnKind => (k === 'mongodb' || k === 'redis' ? k : 'sqlserver');
+const kindLabel = (k: ConnKind) => (k === 'sqlserver' ? 'SQL Server' : k === 'mongodb' ? 'MongoDB' : 'Redis');
+
+/** Quotes a Redis argument the way redis-cli expects. */
+export function redisArg(s: string): string {
+  if (s && !/[\s"'\\]/.test(s) && !/[\x00-\x1f\x7f]/.test(s)) return s;
+  return '"' + s.replace(/[\\"]/g, (c) => '\\' + c).replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t').replace(/[\x00-\x1f\x7f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0')) + '"';
+}
+
+/** The read command(s) that show a key's value, by Redis type. */
+export function redisOpenCommand(key: string, type: string): string {
+  const k = redisArg(key);
+  const read: Record<string, string> = {
+    string: `GET ${k}`,
+    hash: `HGETALL ${k}`,
+    list: `LRANGE ${k} 0 99`,
+    set: `SSCAN ${k} 0 COUNT 500`,
+    zset: `ZRANGE ${k} 0 99 WITHSCORES`,
+    stream: `XRANGE ${k} - + COUNT 100`,
+    'ReJSON-RL': `JSON.GET ${k}`,
+  };
+  return `${read[type] ?? `TYPE ${k}`}\nTTL ${k}\n`;
+}
 
 const objName = (o: engine.DbObject) => (o.schema ? `${o.schema}.${o.name}` : o.name);
 
@@ -40,8 +79,16 @@ export class Sidebar {
   private columns = new Map<string, Loadable<engine.ColumnInfo[]>>();
   private dbLists = new Map<string, Loadable<string[]>>();
   private selected = '';
+  private kindTab: ConnKind = 'sqlserver';
+  private tabsEl: HTMLElement;
 
   constructor(private actions: SidebarActions) {
+    try {
+      this.kindTab = kindOf(localStorage.getItem('sqlstudio.sidebarTab') ?? undefined);
+    } catch {
+      /* storage unavailable */
+    }
+    this.tabsEl = h('div', { class: 'segmented side-tabs' });
     this.filter = h('input', { class: 'input filter', type: 'search', placeholder: 'Filter objects…', spellcheck: false });
     this.filter.addEventListener('input', () => this.render());
     this.tree = h('div', { class: 'tree', tabIndex: 0 });
@@ -54,15 +101,43 @@ export class Sidebar {
         h('span', { class: 'side-title' }, 'CONNECTIONS'),
         h('button', { class: 'icon-btn', title: 'New connection (⇧⌘N)', onclick: () => this.addConnection() }, icon('plus')),
       ),
+      h('div', { class: 'side-tabs-wrap' }, this.tabsEl),
       h('div', { class: 'side-filter' }, this.filter),
       this.tree,
     );
     on('connections', () => this.render());
   }
 
-  async addConnection() {
-    const r = await connectionDialog();
-    if (r?.connect) await this.connectAndExpand(r.conn.id);
+  async addConnection(kind: ConnKind = this.kindTab) {
+    const r = await connectionDialog(undefined, kind);
+    if (!r) return;
+    this.setTab(kindOf(r.conn.kind));
+    if (r.connect) await this.connectAndExpand(r.conn.id);
+  }
+
+  setTab(kind: ConnKind) {
+    this.kindTab = kind;
+    try {
+      localStorage.setItem('sqlstudio.sidebarTab', kind);
+    } catch {
+      /* ignore */
+    }
+    this.render();
+  }
+
+  private renderTabs() {
+    const counts: Record<ConnKind, number> = { sqlserver: 0, mongodb: 0, redis: 0 };
+    for (const cs of state.conns.values()) counts[kindOf(cs.profile.kind)]++;
+    this.tabsEl.replaceChildren(
+      ...KIND_TABS.map(([k, label]) =>
+        h(
+          'button',
+          { class: 'seg' + (this.kindTab === k ? ' on' : ''), title: `${kindLabel(k)} connections`, onclick: () => this.setTab(k) },
+          label,
+          counts[k] ? h('span', { class: 'seg-count' }, String(counts[k])) : null,
+        ),
+      ),
+    );
   }
 
   async connectAndExpand(id: string) {
@@ -213,14 +288,15 @@ export class Sidebar {
     const scroll = this.tree.scrollTop;
     const out: HTMLElement[] = [];
     const filter = this.filter.value.trim().toLowerCase();
-    const conns = [...state.conns.values()];
+    this.renderTabs();
+    const conns = [...state.conns.values()].filter((cs) => kindOf(cs.profile.kind) === this.kindTab);
     if (!conns.length) {
       out.push(
         h(
           'div',
           { class: 'empty-side' },
-          h('p', {}, 'No connections yet.'),
-          h('button', { class: 'btn primary', onclick: () => this.addConnection() }, 'New Connection'),
+          h('p', {}, `No ${kindLabel(this.kindTab)} connections yet.`),
+          h('button', { class: 'btn primary', onclick: () => this.addConnection() }, `New ${kindLabel(this.kindTab)} Connection`),
         ),
       );
     }
@@ -238,7 +314,7 @@ export class Sidebar {
         this.row(0, {
           key: ck,
           label: p.name,
-          iconName: p.kind === 'mongodb' ? 'leaf' : 'server',
+          iconName: p.kind === 'mongodb' ? 'leaf' : p.kind === 'redis' ? 'redis' : 'server',
           color: p.color || undefined,
           expandable: true,
           expanded: open,
@@ -254,7 +330,7 @@ export class Sidebar {
       );
       if (!open) continue;
       if (cs.status === 'connecting') {
-        out.push(this.status(1, p.kind === 'mongodb' || p.auth === 'sql' ? 'Connecting…' : 'Signing in… (check your browser)'));
+        out.push(this.status(1, p.kind === 'mongodb' || p.kind === 'redis' || p.auth === 'sql' ? 'Connecting…' : 'Signing in… (check your browser)'));
         continue;
       }
       if (cs.status === 'error') {
@@ -280,7 +356,7 @@ export class Sidebar {
         key: dk,
         label: db,
         iconName: 'database',
-        drag: this.isMongo(connId) ? undefined : bracket(db),
+        drag: this.isMongo(connId) || this.isRedis(connId) ? undefined : bracket(db),
         expandable: true,
         expanded: open,
         onToggle: () => this.toggle(dk, () => this.loadObjects(connId, db)),
@@ -303,8 +379,11 @@ export class Sidebar {
       out.push(this.status(2, objs.error, true));
       return;
     }
-    for (const [kind, label] of this.isMongo(connId) ? MONGO_FOLDERS : FOLDERS) {
-      let items = (objs?.data ?? []).filter((o) => o.kind === kind);
+    const redis = this.isRedis(connId);
+    const all = (objs?.data ?? []).filter((o) => o.kind !== 'more');
+    for (const [kind, label] of redis ? REDIS_FOLDERS : this.isMongo(connId) ? MONGO_FOLDERS : FOLDERS) {
+      let items = all.filter((o) => (redis && kind === 'other' ? !knownRedisTypes.has(o.kind) : o.kind === kind));
+      if (redis && !items.length) continue; // only show types that exist
       if (filter) items = items.filter((o) => objName(o).toLowerCase().includes(filter));
       const fk = this.key('f', connId, db, kind);
       const fopen = this.expanded.has(fk) || (!!filter && items.length > 0);
@@ -325,6 +404,44 @@ export class Sidebar {
       for (const o of items.slice(0, max)) this.renderObject(out, connId, db, o);
       if (items.length > max) out.push(this.status(3, `…and ${items.length - max} more. Use the filter box.`));
     }
+    if (redis && (objs?.data ?? []).some((o) => o.kind === 'more')) {
+      out.push(this.status(2, 'Showing the first 2,000 keys. Use SCAN 0 MATCH <pattern> in a query to find others.'));
+    }
+    if (redis && !all.length && !filter) out.push(this.status(2, 'No keys in this database.'));
+  }
+
+  private isRedis(connId: string) {
+    return state.conns.get(connId)?.profile.kind === 'redis';
+  }
+
+  private renderRedisKey(out: HTMLElement[], connId: string, db: string, o: engine.DbObject) {
+    const open = () => this.actions.newQuery(connId, db, redisOpenCommand(o.name, o.kind), true);
+    out.push(
+      this.row(3, {
+        key: this.key('k', connId, db, o.name),
+        label: o.name,
+        iconName: 'key',
+        detail: knownRedisTypes.has(o.kind) ? undefined : o.kind,
+        drag: redisArg(o.name),
+        onOpen: open,
+        menu: () => [
+          { label: 'Show Value', action: open },
+          { label: 'TTL / Type / Memory', action: () => this.actions.newQuery(connId, db, `TYPE ${redisArg(o.name)}\nTTL ${redisArg(o.name)}\nMEMORY USAGE ${redisArg(o.name)}\n`, true) },
+          { separator: true, label: '' },
+          { label: 'Copy Name', action: () => void navigator.clipboard.writeText(o.name) },
+          {
+            label: 'Delete Key…',
+            danger: true,
+            action: async () => {
+              if (await confirmDialog('Delete key', `Delete the key “${o.name}” from ${db}? This cannot be undone.`, 'Delete', true)) {
+                this.actions.newQuery(connId, db, `DEL ${redisArg(o.name)}\n`, true);
+                window.setTimeout(() => this.loadObjects(connId, db, true), 800);
+              }
+            },
+          },
+        ],
+      }),
+    );
   }
 
   private isMongo(connId: string) {
@@ -365,6 +482,7 @@ export class Sidebar {
 
   private renderObject(out: HTMLElement[], connId: string, db: string, o: engine.DbObject) {
     if (this.isMongo(connId)) return this.renderMongoObject(out, connId, db, o);
+    if (this.isRedis(connId)) return this.renderRedisKey(out, connId, db, o);
     const ok = this.key('o', connId, db, o.schema, o.name);
     const hasCols = o.kind === 'table' || o.kind === 'view';
     const open = this.expanded.has(ok);

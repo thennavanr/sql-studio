@@ -193,7 +193,9 @@ export function parseConnectionString(s: string): Partial<Connection> {
   return out;
 }
 
-export async function connectionDialog(existing?: Connection): Promise<{ conn: Connection; connect: boolean } | null> {
+export type ConnKind = 'sqlserver' | 'mongodb' | 'redis';
+
+export async function connectionDialog(existing?: Connection, preset?: ConnKind): Promise<{ conn: Connection; connect: boolean } | null> {
   const isNew = !existing;
   const c: Connection = store.Connection.createFrom(
     existing ?? { id: '', name: '', server: '', auth: 'entraInteractive', encrypt: 'true', savePassword: true },
@@ -253,9 +255,15 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
   const hint = h('p', { class: 'hint' });
   const status = h('div', { class: 'test-status' });
 
-  let kind: 'sqlserver' | 'mongodb' = c.kind === 'mongodb' ? 'mongodb' : 'sqlserver';
+  let kind: ConnKind = existing ? (c.kind === 'mongodb' || c.kind === 'redis' ? c.kind : 'sqlserver') : (preset ?? 'sqlserver');
+  const rf = {
+    uri: inp(c.kind === 'redis' ? c.uri : '', { placeholder: 'rediss://myapp.redis.cache.windows.net:6380  or  localhost:6379', spellcheck: 'false', autocapitalize: 'off' }),
+    password: inp('', { type: 'password', placeholder: hasSaved ? '•••••••• (saved in Keychain)' : 'leave empty if the server has no password' }),
+    savePassword: h('input', { type: 'checkbox', checked: c.savePassword !== false }),
+    database: inp(c.kind === 'redis' ? (c.database ?? '').replace(/^db/, '') : '', { type: 'number', min: '0', placeholder: '0' }),
+  };
   const mf = {
-    uri: inp(c.uri, { placeholder: 'mongodb+srv://user@cluster0.example.mongodb.net/', spellcheck: 'false', autocapitalize: 'off' }),
+    uri: inp(c.kind === 'mongodb' ? c.uri : '', { placeholder: 'mongodb+srv://user@cluster0.example.mongodb.net/', spellcheck: 'false', autocapitalize: 'off' }),
     password: inp('', { type: 'password', placeholder: hasSaved ? '•••••••• (saved in Keychain)' : 'leave empty if the connection string has no user' }),
     savePassword: h('input', { type: 'checkbox', checked: c.savePassword !== false }),
     database: inp(c.database, { placeholder: 'optional – e.g. shop', spellcheck: 'false', autocapitalize: 'off' }),
@@ -305,7 +313,21 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
   }, 'Paste connection string…');
 
   const collect = (): Connection =>
-    kind === 'mongodb'
+    kind === 'redis'
+      ? store.Connection.createFrom({
+          ...c,
+          kind: 'redis',
+          uri: rf.uri.value.trim(),
+          password: rf.password.value,
+          savePassword: rf.savePassword.checked,
+          database: rf.database.value.trim() ? 'db' + rf.database.value.trim() : '',
+          name: f.name.value.trim(),
+          group: f.group.value.trim(),
+          server: '',
+          auth: '',
+          color,
+        })
+      : kind === 'mongodb'
       ? store.Connection.createFrom({
           ...c,
           kind: 'mongodb',
@@ -381,7 +403,21 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
     h('label', { class: 'check' }, f.trust, ' Trust server certificate (local / dev servers only)'),
     h('label', { class: 'check' }, f.readOnly, ' Read-only intent (route to readable secondary)'),
   );
-  const kindButtons = (['sqlserver', 'mongodb'] as const).map((k) =>
+  const redisSection = h(
+    'div',
+    { class: 'form' },
+    h('label', { class: 'field' }, h('span', {}, 'Connection string or host'), rf.uri),
+    h(
+      'p',
+      { class: 'hint' },
+      'redis://host:6379, rediss://… for TLS, or the Azure portal string (Access keys → Primary connection string). ' +
+        'Azure Cache for Redis uses TLS on port 6380 with an access key as the password. A password in the string is moved to your Keychain.',
+    ),
+    h('div', { class: 'field' }, h('label', {}, 'Password'), rf.password, h('label', { class: 'check' }, rf.savePassword, ' Remember in Keychain')),
+    h('label', { class: 'field' }, h('span', {}, 'Database number'), rf.database),
+  );
+  const kinds = ['sqlserver', 'mongodb', 'redis'] as const;
+  const kindButtons = kinds.map((k) =>
     h(
       'button',
       {
@@ -390,14 +426,15 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
         onclick: () => {
           kind = k;
           applyKind();
-          (k === 'mongodb' ? mf.uri : f.server).focus();
+          (k === 'mongodb' ? mf.uri : k === 'redis' ? rf.uri : f.server).focus();
         },
       },
-      k === 'sqlserver' ? 'SQL Server / Azure SQL' : 'MongoDB',
+      k === 'sqlserver' ? 'SQL Server / Azure SQL' : k === 'mongodb' ? 'MongoDB' : 'Redis',
     ),
   );
   const applyKind = () => {
-    kindButtons.forEach((b, i) => b.classList.toggle('on', (i === 0 ? 'sqlserver' : 'mongodb') === kind));
+    kindButtons.forEach((b, i) => b.classList.toggle('on', kinds[i] === kind));
+    redisSection.hidden = kind !== 'redis';
     sqlSection.hidden = kind !== 'sqlserver';
     sqlAdvanced.hidden = kind !== 'sqlserver';
     pasteLink.hidden = kind !== 'sqlserver';
@@ -406,6 +443,7 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
   };
   const missing = (): string => {
     if (kind === 'mongodb') return mf.uri.value.trim() ? '' : 'Connection string is required.';
+    if (kind === 'redis') return rf.uri.value.trim() ? '' : 'Connection string or host is required.';
     return f.server.value.trim() ? '' : 'Server is required.';
   };
 
@@ -416,6 +454,7 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
     h('div', { class: 'row-between' }, h('span', { class: 'section' }, 'Connection'), pasteLink),
     sqlSection,
     mongoSection,
+    redisSection,
     h('div', { class: 'grid2' }, h('label', { class: 'field' }, h('span', {}, 'Name'), f.name), h('label', { class: 'field' }, h('span', {}, 'Group'), f.group)),
     h('div', { class: 'field' }, h('span', {}, 'Color'), swatches),
     sqlAdvanced,
@@ -467,7 +506,7 @@ export async function connectionDialog(existing?: Connection): Promise<{ conn: C
         if (miss) {
           status.className = 'test-status err';
           status.textContent = miss;
-          (kind === 'mongodb' ? mf.uri : f.server).focus();
+          (kind === 'mongodb' ? mf.uri : kind === 'redis' ? rf.uri : f.server).focus();
           return false;
         }
         return true;

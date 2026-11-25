@@ -6,6 +6,7 @@ import { sql, MSSQL } from '@codemirror/lang-sql';
 import { javascript, javascriptLanguage } from '@codemirror/lang-javascript';
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { StreamLanguage } from '@codemirror/language';
 import { sqlColumnCompletion, type SqlSchema } from './sqlcomplete';
 
 export interface EditorHandlers {
@@ -213,6 +214,86 @@ function mongoLang(schema: Record<string, string[]> = {}) {
 /** Switch an editor to MongoDB mode; schema maps collection -> field names. */
 export function setMongoMode(view: EditorView, schema?: Record<string, string[]>) {
   view.dispatch({ effects: langComp.reconfigure(mongoLang(schema ?? view.state.facet(mongoSchemaFacet))) });
+}
+
+// ---------- Redis (redis-cli syntax) mode ----------
+
+export const REDIS_COMMANDS = [
+  'APPEND', 'BITCOUNT', 'BITPOS', 'COPY', 'DBSIZE', 'DECR', 'DECRBY', 'DEL', 'DUMP', 'ECHO', 'EXISTS', 'EXPIRE', 'EXPIREAT',
+  'EXPIRETIME', 'FLUSHALL', 'FLUSHDB', 'GEOADD', 'GEODIST', 'GEOPOS', 'GEOSEARCH', 'GET', 'GETBIT', 'GETDEL', 'GETEX', 'GETRANGE',
+  'GETSET', 'HDEL', 'HEXISTS', 'HGET', 'HGETALL', 'HINCRBY', 'HINCRBYFLOAT', 'HKEYS', 'HLEN', 'HMGET', 'HMSET', 'HRANDFIELD',
+  'HSCAN', 'HSET', 'HSETNX', 'HSTRLEN', 'HVALS', 'INCR', 'INCRBY', 'INCRBYFLOAT', 'INFO', 'KEYS', 'LINDEX', 'LINSERT', 'LLEN',
+  'LMOVE', 'LPOP', 'LPOS', 'LPUSH', 'LPUSHX', 'LRANGE', 'LREM', 'LSET', 'LTRIM', 'MEMORY', 'MGET', 'MSET', 'MSETNX', 'OBJECT',
+  'PERSIST', 'PEXPIRE', 'PEXPIREAT', 'PFADD', 'PFCOUNT', 'PFMERGE', 'PING', 'PSETEX', 'PTTL', 'PUBLISH', 'PUBSUB', 'RANDOMKEY',
+  'RENAME', 'RENAMENX', 'RPOP', 'RPUSH', 'RPUSHX', 'SADD', 'SCAN', 'SCARD', 'SDIFF', 'SDIFFSTORE', 'SELECT', 'SET', 'SETBIT',
+  'SETEX', 'SETNX', 'SETRANGE', 'SINTER', 'SINTERCARD', 'SISMEMBER', 'SLOWLOG', 'SMEMBERS', 'SMISMEMBER', 'SMOVE', 'SORT',
+  'SPOP', 'SRANDMEMBER', 'SREM', 'SSCAN', 'STRLEN', 'SUNION', 'TIME', 'TOUCH', 'TTL', 'TYPE', 'UNLINK', 'XACK', 'XADD',
+  'XDEL', 'XGROUP', 'XINFO', 'XLEN', 'XPENDING', 'XRANGE', 'XREAD', 'XREVRANGE', 'XTRIM', 'ZADD', 'ZCARD', 'ZCOUNT',
+  'ZINCRBY', 'ZINTER', 'ZLEXCOUNT', 'ZMSCORE', 'ZPOPMAX', 'ZPOPMIN', 'ZRANDMEMBER', 'ZRANGE', 'ZRANGEBYSCORE', 'ZRANK',
+  'ZREM', 'ZREMRANGEBYRANK', 'ZREMRANGEBYSCORE', 'ZREVRANGE', 'ZREVRANK', 'ZSCAN', 'ZSCORE', 'ZUNION', 'CLIENT', 'CONFIG',
+  'COMMAND', 'JSON.GET', 'JSON.SET', 'JSON.DEL', 'EVAL', 'EVALSHA', 'SCRIPT', 'FUNCTION', 'FCALL', 'WAIT', 'LASTSAVE', 'ROLE',
+];
+const redisCommandSet = new Set(REDIS_COMMANDS);
+
+const redisLanguage = StreamLanguage.define<{ first: boolean }>({
+  name: 'redis',
+  startState: () => ({ first: true }),
+  token(stream, state) {
+    if (stream.sol()) state.first = true;
+    if (stream.eatSpace()) return null;
+    if (state.first && (stream.match('#') || stream.match('//'))) {
+      stream.skipToEnd();
+      return 'comment';
+    }
+    const ch = stream.peek();
+    if (ch === '"' || ch === "'") {
+      stream.next();
+      let escaped = false;
+      let c: string | void;
+      while ((c = stream.next()) != null) {
+        if (c === ch && !escaped) break;
+        escaped = !escaped && c === '\\';
+      }
+      state.first = false;
+      return 'string';
+    }
+    stream.eatWhile(/[^\s]/);
+    const word = stream.current();
+    if (state.first) {
+      state.first = false;
+      return redisCommandSet.has(word.toUpperCase()) ? 'keyword' : 'variableName';
+    }
+    if (/^-?\d+(\.\d+)?$/.test(word)) return 'number';
+    if (/^(WITHSCORES|MATCH|COUNT|TYPE|EX|PX|NX|XX|GT|LT|LIMIT|BYSCORE|BYLEX|REV|KEEPTTL|GET)$/i.test(word)) return 'atom';
+    return null;
+  },
+  languageData: { commentTokens: { line: '#' } },
+});
+
+const redisSchemaFacet = Facet.define<Record<string, string[]>, Record<string, string[]>>({ combine: lastValue });
+
+function redisComplete(ctx: CompletionContext): CompletionResult | null {
+  const line = ctx.state.doc.lineAt(ctx.pos);
+  const before = line.text.slice(0, ctx.pos - line.from);
+  if (/^\s*(#|\/\/)/.test(before)) return null;
+  const word = ctx.matchBefore(/[^\s"']+/);
+  const isFirst = /^\s*[^\s]*$/.test(before);
+  if (!word && !ctx.explicit) return null;
+  const from = word ? word.from : ctx.pos;
+  if (isFirst) {
+    return { from, options: REDIS_COMMANDS.map((c) => ({ label: c, type: 'keyword' })), validFor: /^[\w.]*$/ };
+  }
+  const keys = Object.keys(ctx.state.facet(redisSchemaFacet));
+  return { from, options: keys.map((k) => ({ label: k, type: 'variable', detail: 'key' })), validFor: /^[^\s"']*$/ };
+}
+
+function redisLang(schema: Record<string, string[]> = {}) {
+  return [redisLanguage, redisSchemaFacet.of(schema), redisLanguage.data.of({ autocomplete: redisComplete })];
+}
+
+/** Switch an editor to Redis mode; schema maps key names -> []. */
+export function setRedisMode(view: EditorView, schema?: Record<string, string[]>) {
+  view.dispatch({ effects: langComp.reconfigure(redisLang(schema ?? view.state.facet(redisSchemaFacet))) });
 }
 
 /** Switch an editor back to T-SQL mode. */

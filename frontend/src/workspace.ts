@@ -2,7 +2,7 @@ import type { EditorView } from '@codemirror/view';
 import * as App from './wailsjs/go/main/App';
 import { EventsOn } from './wailsjs/runtime/runtime';
 import { DataGrid, type Cell, type GridColumn } from './grid';
-import { commentLines, createEditor, FormatError, formatMongo, formatSQL, toggleCommentLines, uncommentLines, gotoLine, setCompletionSchema, setEditorFont, setEditorTheme, setMongoMode, setSQLMode } from './editor';
+import { commentLines, createEditor, FormatError, formatMongo, formatSQL, toggleCommentLines, uncommentLines, gotoLine, setCompletionSchema, setEditorFont, setEditorTheme, setMongoMode, setRedisMode, setSQLMode } from './editor';
 import { DocsView, insertDocumentDialog, type DocsInfo } from './docs';
 import { cellViewer, confirmDialog, connectionDialog, contextMenu, infoDialog, promptText, showErrorDialog } from './dialogs';
 import { emit, ensureConnected, on, state } from './state';
@@ -44,7 +44,7 @@ class QueryTab {
   dirty = false;
   running = false;
   runToken = '';
-  mode: 'sql' | 'mongo' = 'sql';
+  mode: 'sql' | 'mongo' | 'redis' = 'sql';
   nextSeq = 0;
   pending = new Map<number, { name: string; d: any }>();
   startedAt = 0;
@@ -434,6 +434,7 @@ export class Workspace {
     void p.then((schema) => {
       if (t.connId + ':' + t.database !== key || !this.tabs.includes(t)) return;
       if (this.isMongoTab(t)) setMongoMode(t.view, schema ?? {});
+      else if (this.isRedisTab(t)) setRedisMode(t.view, schema ?? {});
       else setCompletionSchema(t.view, schema ?? {});
     });
   }
@@ -442,13 +443,40 @@ export class Workspace {
     return state.conns.get(t.connId)?.profile.kind === 'mongodb';
   }
 
-  /** Puts the tab's editor in SQL or MongoDB mode to match its connection. */
+  private isRedisTab(t: QueryTab) {
+    return state.conns.get(t.connId)?.profile.kind === 'redis';
+  }
+
+  /** Puts the tab's editor in SQL, MongoDB or Redis mode to match its connection. */
   private applyMode(t: QueryTab) {
-    const mode = this.isMongoTab(t) ? 'mongo' : 'sql';
+    const mode = this.isMongoTab(t) ? 'mongo' : this.isRedisTab(t) ? 'redis' : 'sql';
     if (t.mode === mode) return;
     t.mode = mode;
     if (mode === 'mongo') setMongoMode(t.view);
+    else if (mode === 'redis') setRedisMode(t.view);
     else setSQLMode(t.view);
+  }
+
+  private redisDangerous: string[] | null = null;
+
+  /** Asks before running destructive Redis commands such as FLUSHALL. */
+  private async confirmRedis(text: string): Promise<boolean> {
+    this.redisDangerous ??= await App.RedisDangerousCommands().catch(() => ['FLUSHALL', 'FLUSHDB', 'SHUTDOWN']);
+    const found = new Set<string>();
+    for (const line of text.split('\n')) {
+      const words = line.trim().toUpperCase().split(/\s+/);
+      for (const d of this.redisDangerous) {
+        const parts = d.split(' ');
+        if (parts.every((p, i) => words[i] === p)) found.add(d);
+      }
+    }
+    if (!found.size) return true;
+    return confirmDialog(
+      'Run destructive command?',
+      `This script contains ${[...found].join(', ')}, which can delete data or affect the server. Run it?`,
+      'Run',
+      true,
+    );
   }
 
   /** Opens the insert dialog for a collection (from the explorer or a result). */
@@ -478,6 +506,7 @@ export class Workspace {
     }
     const text = doc.sliceString(from, to);
     if (!text.trim()) return;
+    if (this.isRedisTab(t) && !(await this.confirmRedis(text))) return;
     if (!t.connId) {
       const c = this.firstConnected();
       if (c) this.setConnection(t, c);
@@ -910,7 +939,7 @@ export class Workspace {
       left.push(h('span', { class: 'status-dot ' + cs.status }));
       left.push(h('span', {}, cs.profile.name));
       if (cs.info) {
-        const product = cs.profile.kind === 'mongodb' ? cs.info.edition : cs.info.isAzure ? 'Azure SQL' : 'SQL Server';
+        const product = cs.profile.kind === 'mongodb' || cs.profile.kind === 'redis' ? cs.info.edition : cs.info.isAzure ? 'Azure SQL' : 'SQL Server';
         left.push(h('span', { class: 'muted' }, `${cs.info.login ? cs.info.login + ' · ' : ''}${product} ${cs.info.version}`));
       }
       if (t?.database) left.push(h('span', { class: 'muted' }, t.database));
@@ -944,6 +973,10 @@ export class Workspace {
     const t = this.active;
     if (!t) return;
     try {
+      if (this.isRedisTab(t)) {
+        await infoDialog('Format', 'Formatting is available for SQL and MongoDB tabs; Redis commands are one per line.');
+        return;
+      }
       if (this.isMongoTab(t)) await formatMongo(t.view);
       else await formatSQL(t.view);
       t.view.focus();
@@ -1030,7 +1063,7 @@ export class Workspace {
     const t = this.active;
     if (!t) return;
     try {
-      const ext = this.isMongoTab(t) ? '.js' : '.sql';
+      const ext = this.isMongoTab(t) ? '.js' : this.isRedisTab(t) ? '.redis' : '.sql';
       const base = t.title.replace(/\.(sql|js|txt)$/i, '').replace(/[^\w.-]+/g, '_');
       const name = t.path ? t.path.split('/').pop()! : base + ext;
       const p = await App.SaveFile(t.path, name, t.view.state.doc.toString(), saveAs);

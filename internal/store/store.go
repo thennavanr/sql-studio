@@ -68,10 +68,14 @@ type Connection struct {
 const (
 	KindSQLServer = "sqlserver"
 	KindMongoDB   = "mongodb"
+	KindRedis     = "redis"
 )
 
 // IsMongo reports whether the profile is a MongoDB connection.
 func (c Connection) IsMongo() bool { return c.Kind == KindMongoDB }
+
+// IsRedis reports whether the profile is a Redis connection.
+func (c Connection) IsRedis() bool { return c.Kind == KindRedis }
 
 // HistoryEntry records an executed query.
 type HistoryEntry struct {
@@ -223,7 +227,7 @@ func (s *Store) Lookup(id string) (Connection, bool) {
 func (s *Store) Save(c Connection) (Connection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if c.IsMongo() {
+	if c.IsMongo() || c.IsRedis() {
 		if strings.TrimSpace(c.URI) == "" {
 			return c, errors.New("connection string is required")
 		}

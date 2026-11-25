@@ -13,6 +13,7 @@ import (
 
 	"github.com/thennavanr/sql-studio/internal/engine"
 	"github.com/thennavanr/sql-studio/internal/mongo"
+	"github.com/thennavanr/sql-studio/internal/redisdb"
 	"github.com/thennavanr/sql-studio/internal/store"
 )
 
@@ -25,6 +26,7 @@ type App struct {
 	store *store.Store
 	mgr   *engine.Manager
 	mongo *mongo.Manager
+	redis *redisdb.Manager
 
 	mu   sync.Mutex
 	runs map[string]*run // tab ID -> current run (incl. connecting)
@@ -37,7 +39,7 @@ type run struct {
 
 // NewApp creates the application backend.
 func NewApp(st *store.Store) *App {
-	return &App{store: st, mgr: engine.NewManager(), mongo: mongo.NewManager(), runs: map[string]*run{}}
+	return &App{store: st, mgr: engine.NewManager(), mongo: mongo.NewManager(), redis: redisdb.NewManager(), runs: map[string]*run{}}
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -54,6 +56,7 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(context.Context) {
 	a.mgr.Close()
 	a.mongo.Close()
+	a.redis.Close()
 }
 
 // ---- Connections ----
@@ -70,6 +73,13 @@ func (a *App) SaveConnection(c store.Connection) (store.Connection, error) {
 		}
 		a.mongo.Disconnect(c.ID)
 	}
+	if c.IsRedis() {
+		var err error
+		if c, err = redisdb.Normalize(c); err != nil {
+			return c, err
+		}
+		a.redis.Disconnect(c.ID)
+	}
 	saved, err := a.store.Save(c)
 	if err != nil {
 		return saved, err
@@ -85,6 +95,7 @@ func (a *App) SaveConnection(c store.Connection) (store.Connection, error) {
 func (a *App) DeleteConnection(id string) error {
 	a.mgr.Disconnect(id)
 	a.mongo.Disconnect(id)
+	a.redis.Disconnect(id)
 	return a.store.Delete(id)
 }
 
@@ -108,6 +119,9 @@ func (a *App) TestConnection(c store.Connection) (engine.ServerInfo, error) {
 	defer cancel()
 	if c.IsMongo() {
 		return a.testMongo(ctx, c)
+	}
+	if c.IsRedis() {
+		return a.testRedis(ctx, c)
 	}
 	return engine.Test(ctx, c, a.mgr.OnDeviceCode)
 }
@@ -134,6 +148,9 @@ func (a *App) Connect(id, password string) (ConnectResult, error) {
 	}
 	if c.IsMongo() {
 		return a.connectMongo(c)
+	}
+	if c.IsRedis() {
+		return a.connectRedis(c)
 	}
 	if needsSecret(c.Auth) && c.Password == "" {
 		return ConnectResult{}, errors.New(ErrPasswordRequired)
@@ -162,6 +179,7 @@ func (a *App) Connect(id, password string) (ConnectResult, error) {
 func (a *App) Disconnect(id string) {
 	a.mgr.Disconnect(id)
 	a.mongo.Disconnect(id)
+	a.redis.Disconnect(id)
 }
 
 // ---- Object explorer ----
@@ -174,6 +192,9 @@ func (a *App) metaCtx() (context.Context, context.CancelFunc) {
 func (a *App) ListDatabases(connID string) ([]string, error) {
 	if a.isMongo(connID) {
 		return a.mongoDatabases(connID)
+	}
+	if a.isRedis(connID) {
+		return a.redisDatabases(connID)
 	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
@@ -189,6 +210,9 @@ func (a *App) ListObjects(connID, database string) ([]engine.DbObject, error) {
 	if a.isMongo(connID) {
 		return a.mongoCollections(connID, database)
 	}
+	if a.isRedis(connID) {
+		return a.redisKeys(connID, database)
+	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
 	db, err := a.mgr.Pool(ctx, connID, database)
@@ -200,8 +224,8 @@ func (a *App) ListObjects(connID, database string) ([]engine.DbObject, error) {
 
 // ListColumns lists columns of a table or view.
 func (a *App) ListColumns(connID, database, schema, name string) ([]engine.ColumnInfo, error) {
-	if a.isMongo(connID) {
-		return nil, errNotForMongo
+	if a.isMongo(connID) || a.isRedis(connID) {
+		return nil, errNotSupported
 	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
@@ -217,6 +241,9 @@ func (a *App) CompletionSchema(connID, database string) (map[string][]string, er
 	if a.isMongo(connID) {
 		return a.mongoCompletion(connID, database)
 	}
+	if a.isRedis(connID) {
+		return a.redisCompletion(connID, database)
+	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
 	db, err := a.mgr.Pool(ctx, connID, database)
@@ -228,8 +255,8 @@ func (a *App) CompletionSchema(connID, database string) (map[string][]string, er
 
 // ScriptObject returns a CREATE script for an object.
 func (a *App) ScriptObject(connID, database, schema, name, kind string) (string, error) {
-	if a.isMongo(connID) {
-		return "", errNotForMongo
+	if a.isMongo(connID) || a.isRedis(connID) {
+		return "", errNotSupported
 	}
 	ctx, cancel := a.metaCtx()
 	defer cancel()
@@ -242,8 +269,8 @@ func (a *App) ScriptObject(connID, database, schema, name, kind string) (string,
 
 // ScriptData generates INSERT statements with the rows of a table or view.
 func (a *App) ScriptData(connID, database, schema, name string, opts engine.ScriptDataOptions) (engine.ScriptDataResult, error) {
-	if a.isMongo(connID) {
-		return engine.ScriptDataResult{}, errNotForMongo
+	if a.isMongo(connID) || a.isRedis(connID) {
+		return engine.ScriptDataResult{}, errNotSupported
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Minute)
 	defer cancel()
@@ -265,6 +292,9 @@ func (a *App) CopyText(text string) error {
 func (a *App) Validate(connID, database, script string) ([]engine.Message, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 2*time.Minute)
 	defer cancel()
+	if a.isRedis(connID) {
+		return a.validateRedis(ctx, connID, database, script)
+	}
 	if a.isMongo(connID) {
 		m, err := a.mongoClient(connID)
 		if err != nil {
@@ -344,6 +374,8 @@ func (a *App) Execute(tabID, runID, connID, database, script string) {
 		var sum engine.Summary
 		if a.isMongo(connID) {
 			sum = a.executeMongo(ctx, connID, database, script, settings, sink)
+		} else if a.isRedis(connID) {
+			sum = a.executeRedis(ctx, connID, database, script, settings, sink)
 		} else if sess, err := a.mgr.Session(ctx, tabID, connID, database); err != nil {
 			sink.Message(engine.Message{Kind: "error", Text: err.Error(), Time: time.Now().UnixMilli()})
 			sum = engine.Summary{Errors: 1, Cancelled: ctx.Err() != nil, ElapsedMs: time.Since(start).Milliseconds(), Database: database}

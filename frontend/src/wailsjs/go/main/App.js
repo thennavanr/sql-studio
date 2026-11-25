@@ -94,6 +94,10 @@ export function ReadFile(arg1) {
   return window['go']['main']['App']['ReadFile'](arg1);
 }
 
+export function RedisDangerousCommands() {
+  return window['go']['main']['App']['RedisDangerousCommands']();
+}
+
 export function SaveConnection(arg1) {
   return window['go']['main']['App']['SaveConnection'](arg1);
 }

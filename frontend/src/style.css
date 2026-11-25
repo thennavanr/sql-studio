@@ -1439,3 +1439,21 @@ dialog.modal form {
   overflow-wrap: anywhere;
   pointer-events: none;
 }
+
+/* connection-type tabs in the sidebar */
+.side-tabs-wrap {
+  padding: 0 8px 6px;
+}
+.side-tabs .seg {
+  height: 22px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.seg-count {
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}

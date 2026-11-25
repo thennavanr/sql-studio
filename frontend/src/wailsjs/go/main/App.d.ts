@@ -50,6 +50,8 @@ export function OpenURL(arg1:string):Promise<void>;
 
 export function ReadFile(arg1:string):Promise<main.FileResult>;
 
+export function RedisDangerousCommands():Promise<Array<string>>;
+
 export function SaveConnection(arg1:store.Connection):Promise<store.Connection>;
 
 export function SaveFile(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<string>;
