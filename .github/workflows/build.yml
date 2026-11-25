@@ -129,7 +129,7 @@ jobs:
           name: SQL Studio v${{ env.VERSION }}
           generate_release_notes: true
           body: |
-            Lightweight SQL Server / Azure SQL and MongoDB client for macOS (universal: Apple Silicon + Intel).
+            Lightweight SQL Server / Azure SQL, MongoDB and Redis client for macOS (universal: Apple Silicon + Intel).
 
             **Homebrew:** `brew tap thennavanr/sql-studio https://github.com/thennavanr/sql-studio && brew install --cask --appdir ~/Applications thennavanr/sql-studio/sql-studio` (upgrade with `brew upgrade --cask sql-studio`).
 

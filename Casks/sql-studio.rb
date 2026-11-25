@@ -4,7 +4,7 @@ cask "sql-studio" do
 
   url "https://github.com/thennavanr/sql-studio/releases/download/v#{version}/SQL-Studio-macOS-universal.dmg"
   name "SQL Studio"
-  desc "Lightweight SQL Server, Azure SQL and MongoDB client"
+  desc "Lightweight SQL Server, Azure SQL, MongoDB and Redis client"
   homepage "https://github.com/thennavanr/sql-studio"
 
   livecheck do
